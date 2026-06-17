@@ -1,0 +1,53 @@
+{
+  "date": "2026-06-17",
+  "markets": [
+    {
+      "ticker": "TSM",
+      "description": "TSMC - Taiwan chips - predicts US semiconductors",
+      "move_percent": -2.34,
+      "direction": "DOWN",
+      "size": "BIG",
+      "us_prediction": "TSMC down 2%+ usually means US semis open weak",
+      "date": "2026-06-17"
+    },
+    {
+      "ticker": "005930.KS",
+      "description": "Samsung - Korea chips - predicts US tech",
+      "move_percent": 2.56,
+      "direction": "UP",
+      "size": "BIG",
+      "us_prediction": "Samsung up 2%+ confirms semiconductor strength globally",
+      "date": "2026-06-17"
+    },
+    {
+      "ticker": "^N225",
+      "description": "Nikkei - Japan overall - predicts US market mood",
+      "move_percent": 1.33,
+      "direction": "UP",
+      "size": "MEDIUM",
+      "us_prediction": null,
+      "date": "2026-06-17"
+    },
+    {
+      "ticker": "^HSI",
+      "description": "Hang Seng - Hong Kong - predicts risk appetite",
+      "move_percent": -0.39,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-17"
+    },
+    {
+      "ticker": "^BSESN",
+      "description": "Sensex - India - our home market",
+      "move_percent": 0.06,
+      "direction": "UP",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-17"
+    }
+  ],
+  "overall_mood": "MILDLY POSITIVE - More green than red in Asia.",
+  "ups": 3,
+  "downs": 2
+}

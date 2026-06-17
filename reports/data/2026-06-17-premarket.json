@@ -1,0 +1,118 @@
+{
+  "date": "2026-06-17",
+  "stocks_scanned": 10,
+  "unusual_count": 0,
+  "results": [
+    {
+      "ticker": "AAPL",
+      "date": "2026-06-17",
+      "prev_close": 299.01,
+      "premarket_price": 295.15,
+      "premarket_move_pct": -1.29,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "NVDA",
+      "date": "2026-06-17",
+      "prev_close": 207.14,
+      "premarket_price": 210.86,
+      "premarket_move_pct": 1.8,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "AMD",
+      "date": "2026-06-17",
+      "prev_close": 506.94,
+      "premarket_price": 547.1,
+      "premarket_move_pct": 7.92,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "TSLA",
+      "date": "2026-06-17",
+      "prev_close": 404.77,
+      "premarket_price": 404.02,
+      "premarket_move_pct": -0.19,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "META",
+      "date": "2026-06-17",
+      "prev_close": 599.03,
+      "premarket_price": 593.55,
+      "premarket_move_pct": -0.91,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "MSFT",
+      "date": "2026-06-17",
+      "prev_close": 393.4,
+      "premarket_price": 395.93,
+      "premarket_move_pct": 0.64,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "AMZN",
+      "date": "2026-06-17",
+      "prev_close": 246.21,
+      "premarket_price": 248.01,
+      "premarket_move_pct": 0.73,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "GOOGL",
+      "date": "2026-06-17",
+      "prev_close": 373.52,
+      "premarket_price": 369.46,
+      "premarket_move_pct": -1.09,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "SPY",
+      "date": "2026-06-17",
+      "prev_close": 750.16,
+      "premarket_price": 754.25,
+      "premarket_move_pct": 0.55,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    },
+    {
+      "ticker": "QQQ",
+      "date": "2026-06-17",
+      "prev_close": 730.02,
+      "premarket_price": 742.33,
+      "premarket_move_pct": 1.69,
+      "premarket_volume": 0,
+      "volume_ratio": 1.0,
+      "verdict": "NORMAL",
+      "flag": "\u26aa"
+    }
+  ],
+  "overall": "NORMAL"
+}
