@@ -1,0 +1,32 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260617  ·  2026-06-17 10:05 UTC  ·  12s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=3  trans_p=2%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 60 labelled rows  ACTIVE
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] ETH/USDT_relative_0000
+      WFO  Sharpe=0.69  Sortino=0.30  MaxDD=-8.9%  WinRate=3%
+      GT=0.410  stability_σ=119.918
+      MC   G1=0.69 G2=0.56 G3=0.53 G4=0.69 G5_sens=0.48
+      META [META] P(survive)=0.89  pred_decay=0.47  uncertainty=±0.000  rank=0.4246  (regime_n=26)
+      Params: {"lookback": 24, "entry_z": 2.4915766959628933, "exit_z": 0.0810642426510032, "max_hold_days": 13}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
