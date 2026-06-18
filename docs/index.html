@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alfie Night Shift — Live Track Record</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#07090F;color:#E6EDF3;max-width:680px;margin:0 auto;padding:40px 20px}
+h1{font-size:28px;font-weight:700;margin-bottom:8px}
+h1 span{color:#00D8B4}
+.sub{color:#8B9DB0;margin-bottom:36px;line-height:1.6}
+.badge{display:inline-block;background:rgba(0,216,180,.1);border:1px solid rgba(0,216,180,.3);color:#00D8B4;font-size:11px;padding:3px 12px;border-radius:12px;margin-bottom:20px}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:28px}
+.card{background:#0D1117;border:1px solid #1E2D3D;border-radius:8px;padding:16px}
+.card-n{font-size:22px;font-weight:700;font-family:monospace}
+.card-l{font-size:11px;color:#8B9DB0;margin-top:3px}
+.box{background:#0D1117;border:1px solid #1E2D3D;border-radius:8px;padding:18px;margin-bottom:16px}
+.box-title{font-size:11px;font-weight:600;color:#00D8B4;font-family:monospace;margin-bottom:8px;letter-spacing:.08em}
+.box-body{font-family:monospace;font-size:12px;color:#8B9DB0;line-height:1.75;white-space:pre-wrap}
+.footer{margin-top:32px;font-size:11px;color:#4A5568}
+</style>
+</head>
+<body>
+<div class="badge">● LIVE — running nightly 00:00 UTC</div>
+<h1>Alfie <span>Night Shift</span></h1>
+<p class="sub">Autonomous overnight signal engine for BTC / ETH / SOL. Runs a 7-stage pipeline every night — regime classification, walk-forward optimisation, Monte Carlo robustness testing, meta-model ranking. Morning brief ready before US market open.</p>
+<div class="grid">
+  <div class="card"><div class="card-n" style="color:#00D8B4">7</div><div class="card-l">Pipeline stages</div></div>
+  <div class="card"><div class="card-n" style="color:#3FB950">5</div><div class="card-l">MC gates per config</div></div>
+  <div class="card"><div class="card-n" style="color:#A78BFA">Day 2</div><div class="card-l">Live & running</div></div>
+</div>
+<div class="box">
+  <div class="box-title">LATEST BRIEF — CYCLE #20260618</div>
+  <div class="box-body">REGIME    Choppy / ranging  P=100%  days_in=7
+ELIGIBLE  Mean-reversion only (momentum suppressed)
+
+TOP CONFIG  BTC/USDT RSI mean-reversion
+  WFO Sharpe      0.90  (21 OOS folds)
+  MC gates        G1=0.90  G2=0.78  G3=0.79  G4=0.90
+  Param stability 0.44  ✓ passed
+  P(survive)      0.93
+  Configs tested  15  |  Passed all 5 gates  2
+
+System is PAPER-ONLY. No auto-execution.</div>
+</div>
+<div class="box">
+  <div class="box-title">WHAT RUNS EVERY NIGHT</div>
+  <div class="box-body">1. Fetch 500 daily bars BTC/ETH/SOL from Binance
+2. 4-state HMM classifies market regime
+3. Regime gates eligible strategy families
+4. Bayesian WFO — 21 expanding folds
+5. 5-gate Monte Carlo battery
+6. Meta-model ranks survivors
+7. Morning brief written before US open
+
+Built in Solan, India. Zero cloud cost.</div>
+</div>
+<p class="footer">Paper-only system. No positions without operator approval. Not financial advice.</p>
+</body>
+</html>
