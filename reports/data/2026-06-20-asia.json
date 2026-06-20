@@ -1,0 +1,44 @@
+{
+  "date": "2026-06-20",
+  "markets": [
+    {
+      "ticker": "005930.KS",
+      "description": "Samsung - Korea chips - predicts US tech",
+      "move_percent": -4.97,
+      "direction": "DOWN",
+      "size": "BIG",
+      "us_prediction": "Samsung down 2%+ adds pressure to US chip stocks",
+      "date": "2026-06-20"
+    },
+    {
+      "ticker": "^N225",
+      "description": "Nikkei - Japan overall - predicts US market mood",
+      "move_percent": -0.42,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-20"
+    },
+    {
+      "ticker": "^HSI",
+      "description": "Hang Seng - Hong Kong - predicts risk appetite",
+      "move_percent": -0.91,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-20"
+    },
+    {
+      "ticker": "^BSESN",
+      "description": "Sensex - India - our home market",
+      "move_percent": -0.07,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-20"
+    }
+  ],
+  "overall_mood": "RISK OFF - Most Asian markets down. US likely opens cautious.",
+  "ups": 0,
+  "downs": 4
+}

@@ -1,0 +1,22 @@
+{
+  "date": "2026-06-20",
+  "btc": {
+    "ticker": "BTC-USD",
+    "date": "2026-06-20",
+    "high": 63713.0,
+    "low": 63334.0,
+    "last_price": 63371.0,
+    "day_range_pct": 0.6,
+    "day_move_pct": -0.16,
+    "direction": "DOWN",
+    "signal": "CALM",
+    "us_prediction": "Very calm. Markets likely to open steady."
+  },
+  "eth": {
+    "ticker": "ETH-USD",
+    "date": "2026-06-20",
+    "move_pct": -0.23,
+    "direction": "DOWN"
+  },
+  "confirmation": "BTC and ETH moving same direction (DOWN) - signal is CONFIRMED"
+}

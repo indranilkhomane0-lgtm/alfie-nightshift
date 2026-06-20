@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260619  ·  2026-06-19 03:23 UTC  ·  17s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=8  trans_p=5%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 60 labelled rows  ACTIVE
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] BTC/USDT_mean_rev_0013
+      WFO  Sharpe=0.90  Sortino=0.53  MaxDD=-9.5%  WinRate=2%
+      GT=0.557  stability_σ=154.933
+      MC   G1=0.90 G2=0.81 G3=0.79 G4=0.90 G5_sens=0.44
+      META [META] P(survive)=0.92  pred_decay=0.75  uncertainty=±0.000  rank=0.6970  (regime_n=9)
+      Params: {"rsi_low": 15, "rsi_high": 72, "rsi_period": 13, "max_hold_days": 4}
+
+  [2] SOL/USDT_mean_rev_0001
+      WFO  Sharpe=1.60  Sortino=0.91  MaxDD=-15.0%  WinRate=4%
+      GT=0.936  stability_σ=172.188
+      MC   G1=1.60 G2=1.52 G3=1.48 G4=1.60 G5_sens=0.56
+      META [META] P(survive)=0.90  pred_decay=0.75  uncertainty=±0.000  rank=0.6781  (regime_n=9)
+      Params: {"rsi_low": 19, "rsi_high": 83, "rsi_period": 12, "max_hold_days": 3}
+
+  [3] SOL/USDT_mean_rev_0002
+      WFO  Sharpe=1.60  Sortino=0.91  MaxDD=-15.0%  WinRate=4%
+      GT=0.936  stability_σ=172.188
+      MC   G1=1.60 G2=1.51 G3=1.48 G4=1.60 G5_sens=0.56
+      META [META] P(survive)=0.90  pred_decay=0.75  uncertainty=±0.000  rank=0.6781  (regime_n=9)
+      Params: {"rsi_low": 19, "rsi_high": 84, "rsi_period": 12, "max_hold_days": 3}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================

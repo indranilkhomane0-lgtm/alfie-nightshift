@@ -7,3 +7,4 @@ nightshift/meta_model.pkl
 nightshift/logs/*.log
 .DS_Store
 *.zip
+.env

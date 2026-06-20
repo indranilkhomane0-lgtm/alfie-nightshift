@@ -1,0 +1,42 @@
+[
+  {
+    "ticker": "AAPL",
+    "date": "2026-06-19",
+    "regular_close": 297.89,
+    "after_hours_price": 297.2,
+    "move_percent": -0.23,
+    "pattern": "FOLLOW_THROUGH_CANDIDATE"
+  },
+  {
+    "ticker": "NVDA",
+    "date": "2026-06-19",
+    "regular_close": 210.23,
+    "after_hours_price": 210.33,
+    "move_percent": 0.05,
+    "pattern": "FOLLOW_THROUGH_CANDIDATE"
+  },
+  {
+    "ticker": "TSLA",
+    "date": "2026-06-19",
+    "regular_close": 400.43,
+    "after_hours_price": 398.73,
+    "move_percent": -0.42,
+    "pattern": "FOLLOW_THROUGH_CANDIDATE"
+  },
+  {
+    "ticker": "AMD",
+    "date": "2026-06-19",
+    "regular_close": 536.83,
+    "after_hours_price": 536.62,
+    "move_percent": -0.04,
+    "pattern": "FOLLOW_THROUGH_CANDIDATE"
+  },
+  {
+    "ticker": "META",
+    "date": "2026-06-19",
+    "regular_close": 577.22,
+    "after_hours_price": 574.8,
+    "move_percent": -0.42,
+    "pattern": "FOLLOW_THROUGH_CANDIDATE"
+  }
+]
