@@ -8,3 +8,11 @@ nightshift/logs/*.log
 .DS_Store
 *.zip
 .env
+
+# local backups & regenerating artifacts — never commit
+*.bak
+*.old
+*.synthetic-bak
+*.demo-backup
+nightshift/corpus.db
+nightshift/meta_model.pkl

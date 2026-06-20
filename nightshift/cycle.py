@@ -81,7 +81,7 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
         lines += ["",
             f"  [{i}] {cfg.config_id}",
             f"      WFO  Sharpe={cfg.sharpe_oos:.2f}  Sortino={cfg.sortino_oos:.2f}"
-            f"  MaxDD={cfg.max_dd_oos:.1%}  WinRate={cfg.win_rate_oos:.0%}",
+            f"  MaxDD={cfg.max_dd_oos:.1%}",
             f"      GT={cfg.gt_score_oos:.3f}  stability_σ={cfg.param_stability:.3f}",
             f"      MC   G1={mc.get('gate1_p10',0):.2f}"
             f" G2={mc.get('gate2_p10',0):.2f}"
