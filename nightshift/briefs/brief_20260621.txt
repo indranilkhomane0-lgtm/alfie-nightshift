@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260621  ·  2026-06-21 06:09 UTC  ·  29s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=1  trans_p=6%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] ETH/USDT_relative_0000
+      WFO  Sharpe=0.60  Sortino=0.26  MaxDD=-8.9%
+      GT=0.359  stability_σ=119.771
+      MC   G1=0.60 G2=0.44 G3=0.46 G4=0.60 G5_sens=0.41
+      META [FALLBACK] corpus too small — using GT-Score=0.359
+      Params: {"lookback": 24, "entry_z": 2.4613529915116334, "exit_z": 0.36648121915226217, "max_hold_days": 11}
+
+  [2] ETH/USDT_relative_0001
+      WFO  Sharpe=0.60  Sortino=0.26  MaxDD=-8.9%
+      GT=0.359  stability_σ=119.771
+      MC   G1=0.60 G2=0.47 G3=0.46 G4=0.60 G5_sens=0.41
+      META [FALLBACK] corpus too small — using GT-Score=0.359
+      Params: {"lookback": 24, "entry_z": 2.4912156401078267, "exit_z": 0.42692830090291456, "max_hold_days": 11}
+
+  [3] ETH/USDT_relative_0002
+      WFO  Sharpe=0.60  Sortino=0.26  MaxDD=-8.9%
+      GT=0.359  stability_σ=119.771
+      MC   G1=0.60 G2=0.46 G3=0.46 G4=0.60 G5_sens=0.41
+      META [FALLBACK] corpus too small — using GT-Score=0.359
+      Params: {"lookback": 24, "entry_z": 2.480353026525318, "exit_z": 0.43643499572341526, "max_hold_days": 11}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
