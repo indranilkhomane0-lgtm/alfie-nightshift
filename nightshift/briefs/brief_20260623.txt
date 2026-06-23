@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260623  ·  2026-06-23 02:40 UTC  ·  4924s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=21  trans_p=6%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] BTC/USDT_mean_rev_0010
+      WFO  Sharpe=3.02  Sortino=3.54  MaxDD=-3.6%
+      GT=1.823  stability_σ=175.308
+      MC   G1=3.02 G2=2.92 G3=2.81 G4=3.02 G5_sens=0.64
+      META [FALLBACK] corpus too small — using GT-Score=1.823
+      Params: {"rsi_low": 37, "rsi_high": 71, "rsi_period": 21, "max_hold_days": 2}
+
+  [2] BTC/USDT_mean_rev_0014
+      WFO  Sharpe=2.50  Sortino=2.08  MaxDD=-4.4%
+      GT=1.452  stability_σ=167.397
+      MC   G1=2.50 G2=2.41 G3=2.25 G4=2.50 G5_sens=0.45
+      META [FALLBACK] corpus too small — using GT-Score=1.452
+      Params: {"rsi_low": 37, "rsi_high": 69, "rsi_period": 20, "max_hold_days": 3}
+
+  [3] BTC/USDT_mean_rev_0009
+      WFO  Sharpe=2.41  Sortino=1.95  MaxDD=-4.4%
+      GT=1.397  stability_σ=167.952
+      MC   G1=2.41 G2=2.32 G3=2.20 G4=2.41 G5_sens=0.55
+      META [FALLBACK] corpus too small — using GT-Score=1.397
+      Params: {"rsi_low": 35, "rsi_high": 70, "rsi_period": 20, "max_hold_days": 3}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
