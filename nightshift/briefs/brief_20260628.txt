@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260628  ·  2026-06-28 02:40 UTC  ·  3882s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=99%  days_in=7  trans_p=5%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] SOL/USDT_mean_rev_0001
+      WFO  Sharpe=2.12  Sortino=1.76  MaxDD=-6.7%
+      GT=1.226  stability_σ=167.274
+      MC   G1=2.12 G2=2.01 G3=1.82 G4=2.12 G5_sens=0.64
+      META [FALLBACK] corpus too small — using GT-Score=1.226
+      Params: {"rsi_low": 21, "rsi_high": 70, "rsi_period": 16, "max_hold_days": 8}
+
+  [2] SOL/USDT_mean_rev_0002
+      WFO  Sharpe=2.15  Sortino=1.47  MaxDD=-7.7%
+      GT=1.201  stability_σ=173.235
+      MC   G1=2.15 G2=2.01 G3=1.80 G4=2.15 G5_sens=0.53
+      META [FALLBACK] corpus too small — using GT-Score=1.201
+      Params: {"rsi_low": 24, "rsi_high": 84, "rsi_period": 17, "max_hold_days": 7}
+
+  [3] SOL/USDT_mean_rev_0005
+      WFO  Sharpe=1.78  Sortino=1.34  MaxDD=-9.3%
+      GT=1.066  stability_σ=169.689
+      MC   G1=1.78 G2=1.68 G3=1.41 G4=1.78 G5_sens=0.44
+      META [FALLBACK] corpus too small — using GT-Score=1.066
+      Params: {"rsi_low": 22, "rsi_high": 69, "rsi_period": 15, "max_hold_days": 9}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
