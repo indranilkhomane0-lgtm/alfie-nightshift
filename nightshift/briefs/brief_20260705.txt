@@ -1,0 +1,39 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260705  ·  2026-07-05 00:00 UTC  ·  16s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=4  trans_p=12%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] ETH/USDT_relative_0000
+      WFO  Sharpe=0.45  Sortino=0.20  MaxDD=-8.9%
+      GT=0.268  stability_σ=119.704
+      MC   G1=0.45 G2=0.31 G3=0.33 G4=0.45 G5_sens=0.62
+      META [FALLBACK] corpus too small — using GT-Score=0.268
+      Params: {"lookback": 24, "entry_z": 2.4894590631558815, "exit_z": 0.5132319333386656, "max_hold_days": 9}
+
+  [2] ETH/USDT_relative_0001
+      WFO  Sharpe=0.45  Sortino=0.20  MaxDD=-8.9%
+      GT=0.268  stability_σ=119.704
+      MC   G1=0.45 G2=0.32 G3=0.34 G4=0.45 G5_sens=0.62
+      META [FALLBACK] corpus too small — using GT-Score=0.268
+      Params: {"lookback": 24, "entry_z": 2.488056750876941, "exit_z": 0.5254431791265006, "max_hold_days": 9}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
