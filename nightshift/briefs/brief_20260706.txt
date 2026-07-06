@@ -1,0 +1,32 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260706  ·  2026-07-06 00:32 UTC  ·  130s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  1 — HIGH-VOL BULL  P=100%  days_in=122  trans_p=1%
+  Size mult: 75%  Vol target: 10% ann
+  Eligible: ['momentum', 'mean_rev', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] ETH/USDT_relative_0001
+      WFO  Sharpe=0.45  Sortino=0.20  MaxDD=-12.9%
+      GT=0.260  stability_σ=119.615
+      MC   G1=0.45 G2=0.33 G3=0.33 G4=0.45 G5_sens=0.62
+      META [FALLBACK] corpus too small — using GT-Score=0.260
+      Params: {"lookback": 24, "entry_z": 2.4894590631558815, "exit_z": 0.5132319333386656, "max_hold_days": 9}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
