@@ -1,0 +1,26 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260714  ·  2026-07-14 00:10 UTC  ·  15s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=5  trans_p=6%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+  No configs passed all gates tonight.
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
