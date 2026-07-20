@@ -1,0 +1,32 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260720  ·  2026-07-20 00:00 UTC  ·  17s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=7  trans_p=7%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] SOL/USDT_mean_rev_0001
+      WFO  Sharpe=0.71  Sortino=0.53  MaxDD=-30.3%
+      GT=0.467  stability_σ=167.004
+      MC   G1=0.71 G2=0.65 G3=0.54 G4=0.71 G5_sens=0.42
+      META [FALLBACK] corpus too small — using GT-Score=0.467
+      Params: {"rsi_low": 19, "rsi_high": 72, "rsi_period": 13, "max_hold_days": 10}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
