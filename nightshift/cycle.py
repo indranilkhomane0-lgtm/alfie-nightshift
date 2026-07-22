@@ -233,6 +233,16 @@ class NightShiftCycle:
                             top3m, corpus_size(), duration)
         brief_path = str(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
         Path(brief_path).write_text(brief_text, encoding="utf-8")
+
+        # --- prediction stamp: record a gradeable claim for the labeler ---
+        try:
+            from nightshift.stamp_prediction import stamp as _stamp
+            if top3:
+                _p = _stamp(cfg_dicts[0], prices[top3[0].asset]["close"].tolist())
+                log.info("  Prediction stamped: %s %s @ %s",
+                         _p["asset"], _p["direction"], _p["entry_price"])
+        except Exception as _e:
+            log.warning("prediction stamp failed (non-fatal): %s", _e)
         log_cycle_end(self.cycle_id, regime_state=regime.state,
             regime_name=regime.name, n_tested=len(all_results),
             n_passed=len(mc_passed),
