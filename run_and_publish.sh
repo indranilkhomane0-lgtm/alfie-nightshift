@@ -39,7 +39,10 @@ if [ -f "$TODAY_BRIEF" ]; then
   fi
 fi
 
-git add nightshift/briefs/ reports/chain.jsonl >> "$LOG" 2>&1
+# LABEL -- grade any predictions whose settle date has arrived
+"$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
+
+git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl >> "$LOG" 2>&1
 if git diff --cached --quiet; then echo "No new brief -- nothing to publish" >> "$LOG"; exit 0; fi
 
 if [ $DRY -eq 1 ]; then echo "DRY RUN -- would publish:" >> "$LOG"; git diff --cached --name-only >> "$LOG"; git reset -q; exit 0; fi
