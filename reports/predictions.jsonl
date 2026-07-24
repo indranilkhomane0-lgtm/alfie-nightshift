@@ -1,0 +1,1 @@
+{"asset": "ETH/USDT", "config_id": "ETH/USDT_mean_rev_0003", "cycle_date": "2026-07-24", "direction": "neutral", "entry_price": 1878.77, "entry_rsi": 55.58, "hold_days": 7, "prediction_id": "ETHUSDT_2026-07-24", "regime_state": 1, "settle_date": "2026-07-31", "status": "OPEN", "strategy_family": "mean_rev", "wfo_win_rate": 0.006802721088435374}
