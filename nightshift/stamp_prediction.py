@@ -2,82 +2,108 @@
 """
 Alfie Night Shift — prediction stamp.
 
-Records a concrete, gradeable prediction for the night's top config so that
-HOLD_DAYS later the outcome labeler has a fixed claim to grade. Without this,
-the meta-model's 30-row corpus can never fill: you cannot label what was
-never recorded as a fixed prediction.
+Records a concrete, gradeable prediction for the night's top config so the
+outcome labeler has a fixed claim to grade HOLD_DAYS later.
 
-Appended to reports/predictions.jsonl (plain, greppable, one row per night).
-This is the *input* to the labeler; the labeled OUTCOME is what gets chained.
+DIRECTION IS DERIVED FROM THE STRATEGY'S OWN ENTRY CONDITION.
+Every strategy in nightshift/strategies is LONG-ONLY (signal is 0.0 or 1.0,
+never negative). Therefore this module can only ever emit:
+    "long" -> the strategy's entry condition is true today
+    "none" -> no entry signal today; graded NO_CALL, excluded from the corpus
+It must never emit "short". Alfie does not short, and the record must not
+claim a call the system never made.
+
+Entry conditions mirrored from nightshift/strategies/__init__.py:
+    mean_rev : RSI(rsi_period) < rsi_low
+    momentum : MA(fast) > MA(slow) AND RSI(14) > rsi_entry
+    relative : z(lookback return, 30d) > entry_z
 """
 
 import json
 from datetime import date, timedelta
 from pathlib import Path
 
-HOLD_DAYS = 7  # fixed rule: matches strategy max_hold_days
+HOLD_DAYS = 7
 PRED_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
 
 
-def compute_rsi(closes, period: int = 14):
-    """Wilder's RSI from a list/Series of closes. Returns last value or None."""
-    closes = list(map(float, closes))
-    if len(closes) <= period:
+def _rsi(closes, period=14):
+    if len(closes) <= period + 1:
         return None
     gains, losses = [], []
     for a, b in zip(closes[:-1], closes[1:]):
         d = b - a
         gains.append(max(d, 0.0))
         losses.append(max(-d, 0.0))
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    if avg_loss == 0:
+    g = sum(gains[-period:]) / period
+    l = sum(losses[-period:]) / period
+    if l == 0:
         return 100.0
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
+    return 100.0 - 100.0 / (1.0 + g / l)
 
 
-def _direction(params: dict, last_rsi):
-    """
-    Mean-reversion, conservative:
-      RSI <= rsi_low  -> oversold  -> LONG (expect bounce)
-      RSI >= rsi_high -> overbought-> SHORT (expect fade)
-      else / unknown  -> NEUTRAL (grade on realized move magnitude, no guessed side)
-    Never invents a side the strategy didn't clearly imply.
-    """
-    if last_rsi is None:
-        return "neutral"
-    low, high = params.get("rsi_low"), params.get("rsi_high")
-    if low is not None and last_rsi <= low:
-        return "long"
-    if high is not None and last_rsi >= high:
-        return "short"
-    return "neutral"
+def _ma(closes, n):
+    return sum(closes[-n:]) / n if len(closes) >= n else None
+
+
+def _zscore(closes, lookback, window=30):
+    """z of the lookback-period return, standardised over `window` observations."""
+    need = lookback + window + 1
+    if len(closes) < need:
+        return None
+    rets = [(closes[i] - closes[i - lookback]) / closes[i - lookback]
+            for i in range(len(closes) - window, len(closes))]
+    mu = sum(rets) / len(rets)
+    var = sum((r - mu) ** 2 for r in rets) / len(rets)
+    sd = var ** 0.5
+    if sd == 0:
+        return None
+    return (rets[-1] - mu) / sd
+
+
+def entry_signal(family: str, params: dict, closes) -> tuple:
+    """Returns ("long"|"none", diagnostic dict). Long-only by design."""
+    if family == "mean_rev":
+        p = int(params.get("rsi_period", 14))
+        r = _rsi(closes, p)
+        lo = params.get("rsi_low")
+        d = {"rsi": round(r, 2) if r is not None else None, "rsi_low": lo}
+        return ("long" if (r is not None and lo is not None and r < lo) else "none", d)
+
+    if family == "momentum":
+        f, s = int(params.get("fast_ma", 18)), int(params.get("slow_ma", 72))
+        re_ = params.get("rsi_entry", 38)
+        mf, ms, r = _ma(closes, f), _ma(closes, s), _rsi(closes, 14)
+        d = {"ma_fast": mf, "ma_slow": ms, "rsi": round(r, 2) if r else None,
+             "rsi_entry": re_}
+        ok = None not in (mf, ms, r) and mf > ms and r > re_
+        return ("long" if ok else "none", d)
+
+    if family == "relative":
+        lb = int(params.get("lookback", 14))
+        ez = float(params.get("entry_z", 1.5))
+        z = _zscore(closes, lb)
+        d = {"z": round(z, 3) if z is not None else None, "entry_z": ez}
+        return ("long" if (z is not None and z > ez) else "none", d)
+
+    return ("none", {"note": f"unknown family {family}"})
 
 
 def stamp(top_cfg: dict, closes) -> dict:
-    """
-    top_cfg: top config dict from the cycle (asset, strategy_family, params,
-             wfo_win_rate, regime_state, config_id, ...)
-    closes:  iterable of daily closes for top_cfg['asset'] (prices[asset]['close'])
-    """
-    closes = list(map(float, closes))
-    entry_price = closes[-1]
-    period = int(top_cfg.get("params", {}).get("rsi_period", 14))
-    last_rsi = compute_rsi(closes, period)
+    closes = [float(c) for c in closes]
+    params = top_cfg.get("params", {}) or {}
+    family = top_cfg.get("strategy_family", "")
+    direction, diag = entry_signal(family, params, closes)
     entry = date.today()
     pred = {
         "prediction_id": f"{top_cfg['asset'].replace('/','')}_{entry.isoformat()}",
         "cycle_date": entry.isoformat(),
         "asset": top_cfg["asset"],
         "config_id": top_cfg.get("config_id"),
-        "strategy_family": top_cfg.get("strategy_family"),
-        "direction": _direction(top_cfg.get("params", {}), last_rsi),
-        "entry_rsi": round(last_rsi, 2) if last_rsi is not None else None,
-        "entry_price": round(entry_price, 6),
+        "strategy_family": family,
+        "direction": direction,          # "long" or "none" — never "short"
+        "entry_signal_detail": diag,
+        "entry_price": round(closes[-1], 6),
         "hold_days": HOLD_DAYS,
         "settle_date": (entry + timedelta(days=HOLD_DAYS)).isoformat(),
         "wfo_win_rate": top_cfg.get("wfo_win_rate"),
@@ -91,13 +117,12 @@ def stamp(top_cfg: dict, closes) -> dict:
 
 
 if __name__ == "__main__":
-    import random
-    random.seed(7)
-    closes = [3000 + i * 5 + random.uniform(-40, 40) for i in range(90)]  # uptrend -> high RSI
-    demo = {
-        "asset": "ETH/USDT", "config_id": "ETH/USDT_mean_rev_0003",
-        "strategy_family": "mean_rev",
-        "params": {"rsi_low": 15, "rsi_high": 60, "rsi_period": 18, "max_hold_days": 7},
-        "wfo_win_rate": 0.52, "regime_state": 1,
-    }
-    print("stamped:", json.dumps(stamp(demo, closes), indent=2))
+    # mean_rev: oversold -> long ; mid-band -> none
+    over = [100 - i for i in range(60)]            # falling -> low RSI
+    mid = [100 + (i % 3) for i in range(60)]       # flat -> mid RSI
+    cfg = {"asset": "ETH/USDT", "config_id": "t", "strategy_family": "mean_rev",
+           "params": {"rsi_low": 30, "rsi_high": 70, "rsi_period": 14}}
+    print("falling mkt ->", entry_signal("mean_rev", cfg["params"], over))
+    print("flat mkt    ->", entry_signal("mean_rev", cfg["params"], mid))
+    print("momentum    ->", entry_signal("momentum",
+          {"fast_ma": 5, "slow_ma": 20, "rsi_entry": 38}, [100 + i for i in range(60)]))
