@@ -33,6 +33,11 @@ for i in $(seq 1 30); do
   sleep 10
 done
 if [ $NET -eq 0 ]; then
+  CYCLE_DATE="$(date -u +%Y%m%d)"
+  if grep -qF "\"cycle_date\": \"$CYCLE_DATE\"" reports/chain.jsonl 2>/dev/null; then
+    echo "NETWORK NEVER CAME UP (5 min) -- failure already chained for $CYCLE_DATE, skipping duplicate" >> "$LOG"
+    exit 1
+  fi
   echo "NETWORK NEVER CAME UP (5 min) -- publishing failure entry locally, will push on next successful run" >> "$LOG"
   if [ $DRY -eq 0 ]; then
     "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1

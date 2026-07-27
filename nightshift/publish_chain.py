@@ -72,6 +72,7 @@ def main() -> int:
         payload = {
             "type": "PIPELINE_FAILURE",
             "note": "Nightly run did not complete. Published for record continuity.",
+            "cycle_date": datetime.now(timezone.utc).strftime("%Y%m%d"),
         }
     elif args.brief:
         text = Path(args.brief).read_text()
