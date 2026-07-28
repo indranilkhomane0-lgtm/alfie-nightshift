@@ -17,7 +17,8 @@ chain file) is caught and logged, never raised. This script always exits
 
 A same-night proof is only a *pending* calendar receipt; full Bitcoin
 confirmation typically takes hours. Each run also opportunistically
-upgrades the most recent unconfirmed prior proof, so proofs become fully
+upgrades prior still-pending proofs (oldest first, before tonight's own
+stamp, under a bounded total time budget), so proofs become fully
 verifiable over subsequent nights without a separate cron job.
 
 Usage (called by run_and_publish.sh after nightshift/publish_chain.py):
@@ -27,6 +28,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -38,6 +40,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 STAMP_TIMEOUT_S = 15
 UPGRADE_TIMEOUT_S = 15
+UPGRADE_TOTAL_BUDGET_S = 30
 
 
 def find_ots() -> str | None:
@@ -91,11 +94,20 @@ def stamp(ots_bin: str, hash_file: Path) -> bool:
 
 
 def opportunistic_upgrade(ots_bin: str) -> None:
-    """Try to complete the single most recent still-pending proof. Bounded
-    and best-effort -- failure here is normal (Bitcoin confirmation lags)
-    and must never be treated as an error."""
-    candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime, reverse=True)
+    """Try to complete every still-pending proof, oldest first, under a
+    single bounded total time budget. Best-effort -- a proof staying
+    pending is normal (Bitcoin confirmation lags) and must never be
+    treated as an error. Must run before tonight's own stamp: tonight's
+    proof is always the newest and can never be confirmed yet, so
+    examining newest-first (or stopping after one) would permanently
+    starve every older pending proof."""
+    candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime)
+    start = time.monotonic()
     for ots_file in candidates:
+        if time.monotonic() - start > UPGRADE_TOTAL_BUDGET_S:
+            log(f"upgrade sweep hit {UPGRADE_TOTAL_BUDGET_S}s budget -- remaining proofs will be retried next run")
+            break
+
         try:
             info = subprocess.run(
                 [ots_bin, "info", str(ots_file)],
@@ -118,7 +130,6 @@ def opportunistic_upgrade(ots_bin: str) -> None:
                 log(f"upgrade not yet complete for {ots_file.name} (expected until Bitcoin confirms)")
         except Exception as exc:
             log(f"upgrade attempt on {ots_file.name} raised {exc!r} -- skipping")
-        break  # one attempt per run keeps this bounded
 
 
 def main() -> int:
@@ -132,8 +143,15 @@ def main() -> int:
             log("no chain entries to anchor -- skipping")
             return 0
 
-        entry_hash = last_entry_hash()
         OTS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Upgrade older pending proofs before tonight's own stamp exists --
+        # otherwise tonight's (necessarily still-pending) proof would be
+        # the newest and this would waste the whole run on something that
+        # cannot possibly be confirmed yet.
+        opportunistic_upgrade(ots_bin)
+
+        entry_hash = last_entry_hash()
         hash_file = OTS_DIR / f"{entry_hash}.hash"
         ots_file = OTS_DIR / f"{entry_hash}.hash.ots"
 
@@ -146,7 +164,6 @@ def main() -> int:
             else:
                 hash_file.unlink(missing_ok=True)
 
-        opportunistic_upgrade(ots_bin)
         return 0
     except Exception as exc:
         # Anchoring must never break the nightly run -- log and move on.
