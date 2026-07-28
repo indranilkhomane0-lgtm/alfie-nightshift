@@ -41,7 +41,8 @@ if [ $NET -eq 0 ]; then
   echo "NETWORK NEVER CAME UP (5 min) -- publishing failure entry locally, will push on next successful run" >> "$LOG"
   if [ $DRY -eq 0 ]; then
     "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1
-    git add reports/chain.jsonl >> "$LOG" 2>&1
+    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
+    git add reports/chain.jsonl reports/ots/ >> "$LOG" 2>&1
     git commit -m "Night Shift PIPELINE_FAILURE $(date -u +%Y-%m-%d) (network down)" >> "$LOG" 2>&1
   fi
   exit 1
@@ -54,7 +55,8 @@ if [ $? -ne 0 ]; then
   echo "CYCLE FAILED -- publishing honest failure entry" >> "$LOG"
   if [ $DRY -eq 0 ]; then
     "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1
-    git add reports/chain.jsonl >> "$LOG" 2>&1
+    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
+    git add reports/chain.jsonl reports/ots/ >> "$LOG" 2>&1
     git commit -m "Night Shift PIPELINE_FAILURE $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
     git push >> "$LOG" 2>&1
   fi
@@ -68,6 +70,7 @@ fi
 if [ -f "$TODAY_BRIEF" ]; then
   if ! grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
     "$PY" nightshift/publish_chain.py --brief "$TODAY_BRIEF" >> "$LOG" 2>&1
+    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
   else
     echo "brief already chained -- skipping duplicate" >> "$LOG"
   fi
@@ -76,7 +79,7 @@ fi
 # LABEL -- grade any predictions whose settle date has arrived
 "$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
 
-git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl >> "$LOG" 2>&1
+git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ >> "$LOG" 2>&1
 if git diff --cached --quiet; then echo "No new brief -- nothing to publish" >> "$LOG"; exit 0; fi
 
 if [ $DRY -eq 1 ]; then echo "DRY RUN -- would publish:" >> "$LOG"; git diff --cached --name-only >> "$LOG"; git reset -q; exit 0; fi
