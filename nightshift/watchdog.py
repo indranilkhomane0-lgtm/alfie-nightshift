@@ -70,39 +70,48 @@ def alert(message: str) -> None:
 
 
 def main() -> int:
-    today = datetime.now(IST).date()
-    entry = last_entry()
+    try:
+        today = datetime.now(IST).date()
+        entry = last_entry()
 
-    if entry is None:
-        msg = f"No chain entries exist at all. Expected a run for {today}."
+        if entry is None:
+            msg = f"No chain entries exist at all. Expected a run for {today}."
+            log(f"ALERT — {msg}")
+            alert(msg)
+            return 1
+
+        published = datetime.fromisoformat(entry["published_at_utc"]).astimezone(IST)
+        kind = entry.get("payload", {}).get("type", "UNKNOWN")
+
+        if published.date() != today:
+            msg = (
+                f"No chain entry for {today}. Last entry was {kind}, "
+                f"published {published.strftime('%Y-%m-%d %H:%M IST')}."
+            )
+            log(f"ALERT — {msg}")
+            alert(msg)
+            return 1
+
+        if unpushed_commits():
+            msg = (
+                f"{kind} for {today} was chained locally at "
+                f"{published.strftime('%H:%M IST')} but never reached origin "
+                f"(git push must have failed all 3 retries)."
+            )
+            log(f"ALERT — {msg}")
+            alert(msg)
+            return 1
+
+        log(f"OK — {kind} published {published.strftime('%H:%M IST')} for {today}, pushed to origin.")
+        return 0
+    except Exception as exc:
+        # Anything unanticipated (corrupt chain entry, missing git binary, etc.)
+        # must still land a log line -- an unhandled crash here would otherwise
+        # be the one path that leaves watchdog.log silent on a bad night.
+        msg = f"watchdog crashed with unhandled exception: {exc!r}"
         log(f"ALERT — {msg}")
         alert(msg)
         return 1
-
-    published = datetime.fromisoformat(entry["published_at_utc"]).astimezone(IST)
-    kind = entry.get("payload", {}).get("type", "UNKNOWN")
-
-    if published.date() != today:
-        msg = (
-            f"No chain entry for {today}. Last entry was {kind}, "
-            f"published {published.strftime('%Y-%m-%d %H:%M IST')}."
-        )
-        log(f"ALERT — {msg}")
-        alert(msg)
-        return 1
-
-    if unpushed_commits():
-        msg = (
-            f"{kind} for {today} was chained locally at "
-            f"{published.strftime('%H:%M IST')} but never reached origin "
-            f"(git push must have failed all 3 retries)."
-        )
-        log(f"ALERT — {msg}")
-        alert(msg)
-        return 1
-
-    log(f"OK — {kind} published {published.strftime('%H:%M IST')} for {today}, pushed to origin.")
-    return 0
 
 
 if __name__ == "__main__":
