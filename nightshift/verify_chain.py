@@ -31,6 +31,7 @@ def main() -> int:
 
     prev = GENESIS_HASH
     wins = losses = waits = failures = 0
+    code_versions = {}  # code_version -> 1-based index of first appearance
 
     with CHAIN_PATH.open() as f:
         for i, line in enumerate(f, 1):
@@ -47,6 +48,9 @@ def main() -> int:
             prev = entry["entry_hash"]
 
             p = entry["payload"]
+            cv = p.get("code_version", "(predates code_version)")
+            if cv not in code_versions:
+                code_versions[cv] = i
             if p.get("type") == "PIPELINE_FAILURE":
                 failures += 1
             outcome = str(p.get("outcome", "")).upper()
@@ -62,6 +66,11 @@ def main() -> int:
         f"outcomes on record: {wins} wins / {losses} losses / "
         f"{waits} waits / {failures} pipeline failures"
     )
+    print(f"code versions on record: {len(code_versions)}")
+    for cv, idx in sorted(code_versions.items(), key=lambda kv: kv[1]):
+        is_sha = cv not in ("unknown", "(predates code_version)")
+        label = cv[:12] if is_sha else cv
+        print(f"  {label:23s} first appears at entry {idx}")
     return 0
 
 

@@ -18,13 +18,16 @@ Honesty rules enforced here, not by discipline:
 """
 
 import argparse
+import functools
 import hashlib
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 GENESIS_HASH = "0" * 64
 
 
@@ -41,8 +44,30 @@ def last_hash() -> str:
     return json.loads(last_line)["entry_hash"]
 
 
+@functools.lru_cache(maxsize=1)
+def _code_version():
+    """(git HEAD sha, working-tree-dirty) for the code that wrote this entry.
+    Cached per-process — the answer can't change mid-run. Never raises: if
+    git is unavailable or the calls fail, both fields become "unknown" so
+    the entry still gets written rather than claiming a fact we don't have."""
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        dirty = bool(subprocess.run(
+            ["git", "status", "--porcelain"], cwd=REPO_ROOT,
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip())
+        return sha, dirty
+    except Exception:
+        return "unknown", "unknown"
+
+
 def append_entry(payload: dict) -> dict:
     prev = last_hash()
+    sha, dirty = _code_version()
+    payload = {**payload, "code_version": sha, "code_dirty": dirty}
     entry = {
         "published_at_utc": datetime.now(timezone.utc).isoformat(),
         "prev_hash": prev,
