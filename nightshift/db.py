@@ -100,6 +100,15 @@ def corpus_size():
     with get_conn() as c:
         return c.execute("SELECT COUNT(*) FROM corpus WHERE survived IS NOT NULL").fetchone()[0]
 
+def labeled_date_count():
+    """Distinct outcome dates with >=1 labeled row. Configs deployed the same
+    night share market data/regime and are graded together, so they carry
+    roughly one night's worth of independent evidence, not one-per-row."""
+    with get_conn() as c:
+        return c.execute(
+            "SELECT COUNT(DISTINCT outcome_date) FROM corpus WHERE survived IS NOT NULL"
+        ).fetchone()[0]
+
 def regime_corpus_size(regime):
     with get_conn() as c:
         return c.execute(

@@ -235,14 +235,18 @@ class NightShiftCycle:
         Path(brief_path).write_text(brief_text, encoding="utf-8")
 
         # --- prediction stamp: record a gradeable claim for the labeler ---
-        try:
-            from nightshift.stamp_prediction import stamp as _stamp
-            if top3:
-                _p = _stamp(cfg_dicts[0], prices[top3[0].asset]["close"].tolist())
-                log.info("  Prediction stamped: %s %s @ %s",
-                         _p["asset"], _p["direction"], _p["entry_price"])
-        except Exception as _e:
-            log.warning("prediction stamp failed (non-fatal): %s", _e)
+        # One prediction per config that passed MC gating (all assets, not just
+        # the overall top pick) so the meta-model's ranking can be validated
+        # against configs it rated low, not only the ones it rated highest.
+        from nightshift.stamp_prediction import stamp as _stamp
+        for cfg in cfg_dicts:
+            try:
+                _p = _stamp(cfg, prices[cfg["asset"]]["close"].tolist())
+                log.info("  Prediction stamped: %s %s %s @ %s",
+                         _p["asset"], _p["config_id"], _p["direction"], _p["entry_price"])
+            except Exception as _e:
+                log.warning("prediction stamp failed for %s (non-fatal): %s",
+                            cfg.get("config_id"), _e)
         log_cycle_end(self.cycle_id, regime_state=regime.state,
             regime_name=regime.name, n_tested=len(all_results),
             n_passed=len(mc_passed),

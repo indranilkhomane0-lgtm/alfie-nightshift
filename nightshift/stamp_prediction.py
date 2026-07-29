@@ -2,8 +2,11 @@
 """
 Alfie Night Shift — prediction stamp.
 
-Records a concrete, gradeable prediction for the night's top config so the
-outcome labeler has a fixed claim to grade HOLD_DAYS later.
+Records a concrete, gradeable prediction for every config that passed MC
+gating that night (not just the single top-ranked config), so the outcome
+labeler has a fixed claim to grade HOLD_DAYS later for each of them. An
+asset can produce zero, one, or several stamped predictions on a given
+night depending on how many of its configs passed gating.
 
 DIRECTION IS DERIVED FROM THE STRATEGY'S OWN ENTRY CONDITION.
 Every strategy in nightshift/strategies is LONG-ONLY (signal is 0.0 or 1.0,
@@ -89,25 +92,25 @@ def entry_signal(family: str, params: dict, closes) -> tuple:
     return ("none", {"note": f"unknown family {family}"})
 
 
-def stamp(top_cfg: dict, closes) -> dict:
+def stamp(cfg: dict, closes) -> dict:
     closes = [float(c) for c in closes]
-    params = top_cfg.get("params", {}) or {}
-    family = top_cfg.get("strategy_family", "")
+    params = cfg.get("params", {}) or {}
+    family = cfg.get("strategy_family", "")
     direction, diag = entry_signal(family, params, closes)
     entry = date.today()
     pred = {
-        "prediction_id": f"{top_cfg['asset'].replace('/','')}_{entry.isoformat()}",
+        "prediction_id": f"{cfg['config_id'].replace('/','')}_{entry.isoformat()}",
         "cycle_date": entry.isoformat(),
-        "asset": top_cfg["asset"],
-        "config_id": top_cfg.get("config_id"),
+        "asset": cfg["asset"],
+        "config_id": cfg["config_id"],
         "strategy_family": family,
         "direction": direction,          # "long" or "none" — never "short"
         "entry_signal_detail": diag,
         "entry_price": round(closes[-1], 6),
         "hold_days": HOLD_DAYS,
         "settle_date": (entry + timedelta(days=HOLD_DAYS)).isoformat(),
-        "wfo_win_rate": top_cfg.get("wfo_win_rate"),
-        "regime_state": top_cfg.get("regime_state"),
+        "wfo_win_rate": cfg.get("wfo_win_rate"),
+        "regime_state": cfg.get("regime_state"),
         "status": "OPEN",
     }
     PRED_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -10,7 +10,7 @@ from sklearn.model_selection import cross_val_score
 from nightshift.config import (META_MIN_SAMPLES, META_SURVIVE_THRESHOLD,
     META_LIVE_WINDOW, META_RETRAIN_EVERY, META_N_ESTIMATORS,
     META_MAX_DEPTH, META_LEARNING_RATE, META_SEED, ROOT)
-from nightshift.db import get_labelled_corpus, corpus_size, regime_corpus_size
+from nightshift.db import get_labelled_corpus, corpus_size, regime_corpus_size, labeled_date_count
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -55,12 +55,14 @@ class MetaModel:
 
     def train(self, force=False):
         import pandas as pd
-        n = corpus_size()
-        if n < META_MIN_SAMPLES and not force:
-            log.info("Corpus %d/%d — meta-model standby", n, META_MIN_SAMPLES)
+        n_dates = labeled_date_count()
+        if n_dates < META_MIN_SAMPLES and not force:
+            log.info("Corpus %d/%d distinct labeled dates — meta-model standby",
+                      n_dates, META_MIN_SAMPLES)
             return False
         df = self._df()
-        if len(df) < META_MIN_SAMPLES and not force: return False
+        if (df.empty or df["outcome_date"].nunique() < META_MIN_SAMPLES) and not force:
+            return False
         X     = df[FEATURE_COLS].values.astype(float)
         y_clf = df["survived"].values.astype(int)
         y_reg = df["decay_ratio"].values.astype(float)
@@ -131,18 +133,20 @@ class MetaModel:
     def corpus_health(self):
         import pandas as pd
         df = self._df()
-        if df.empty: return {"status":"empty","n_labelled":0}
+        if df.empty: return {"status":"empty","n_labelled":0,"n_labelled_dates":0}
+        n_dates = df["outcome_date"].nunique()
         return {"status":"active" if self._trained else "standby",
                 "n_labelled":len(df),
+                "n_labelled_dates":n_dates,
                 "n_needed":META_MIN_SAMPLES,
-                "pct_complete":min(100, len(df)/META_MIN_SAMPLES*100),
+                "pct_complete":min(100, n_dates/META_MIN_SAMPLES*100),
                 "survive_rate":float(df["survived"].mean()),
                 "avg_decay_ratio":float(df["decay_ratio"].mean()),
                 "cv_auc":self._cv_clf, "cv_r2":self._cv_reg,
                 "model_trained_n":self._n_train}
 
     def should_retrain(self, cycle_id):
-        if not self._trained: return corpus_size() >= META_MIN_SAMPLES
+        if not self._trained: return labeled_date_count() >= META_MIN_SAMPLES
         growth = corpus_size() - self._n_train
         return (cycle_id % META_RETRAIN_EVERY == 0) or (growth >= self._n_train*0.20)
 
