@@ -27,14 +27,16 @@ Genesis is 64 zeros. Because each entry commits to the one before it,
 editing any past entry breaks every hash after it. There is no filtering
 hook in the publisher — losses are written by the same code path as wins.
 
-Every payload also carries the git HEAD commit SHA and a flag for whether
-the working tree was dirty when the entry was written, and both are inside
-the hashed payload, not bolted on afterward. That means a change to how the
-system produces or grades its record shows up as a specific commit at a
-specific entry, instead of an unexplained shift in behavior partway through
-the file. If git isn't available at run time, both fields record "unknown"
-rather than a guess — the record admits when it can't identify itself, and
-still gets written either way.
+Starting at entry 13, every payload also carries the git HEAD commit SHA
+and a flag for whether the working tree was dirty when the entry was
+written, and both are inside the hashed payload, not bolted on afterward.
+That means a change to how the system produces or grades its record shows
+up as a specific commit at a specific entry, instead of an unexplained
+shift in behavior partway through the file. If git isn't available at run
+time, both fields record "unknown" rather than a guess — the record admits
+when it can't identify itself, and still gets written either way. The 12
+entries before that don't carry either field; verify_chain.py labels them
+"(predates code_version)" rather than guessing a version for them.
 
 The chain currently holds four entry types:
 
@@ -52,11 +54,14 @@ The chain currently holds four entry types:
 
 ## Bitcoin anchoring
 
-Every chain entry's hash is also timestamped to the Bitcoin blockchain via
-the free OpenTimestamps calendar servers (nightshift/anchor_ots.py, no cost,
-no API keys). The proof lives next to the chain as
-`reports/ots/<entry_hash>.hash.ots`. The first entry to reach full Bitcoin
-confirmation anchored to block **959944**:
+Since 2026-07-28, each new chain entry's hash is also timestamped to the
+Bitcoin blockchain via the free OpenTimestamps calendar servers
+(nightshift/anchor_ots.py, no cost, no API keys). The proof lives next to
+the chain as `reports/ots/<entry_hash>.hash.ots`. Entries published before
+that date have no proof file and are not anchored — only the hash chain
+covers them. As of this writing, 2 of the chain's 13 entries have a proof.
+The first entry to reach full Bitcoin confirmation anchored to block
+**959944**:
 
     $ ots info reports/ots/4e010bc8...155a8.hash.ots
     File sha256 hash: 5d1c19cd94501fea70a6eca03b73be0b39ea61540b124fab7fb609c87aba5c0c
@@ -156,7 +161,7 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 As of 2026-07-29: 13 chain entries, 4 predictions (1 gradeable, the rest
 "none"/no-signal), 0 labeled outcomes (0 of 30 distinct settle dates
 required for meta-model graduation). Multi-config stamping — every
-MC-passed config, not just the top pick — began with the 2026-07-30 cycle;
+MC-passed config, not just the top pick — begins with the 2026-07-30 cycle;
 the change itself is documented in a METHODOLOGY_CHANGE chain entry.
 
 Do not trust this paragraph — it goes stale. Run verify_chain.py for the
@@ -172,7 +177,7 @@ live count.
     nightshift/anchor_ots.py        timestamps entry hashes to Bitcoin
     reports/chain.jsonl             the record
     reports/predictions.jsonl       open and settled predictions
-    reports/ots/                    OpenTimestamps proofs, one per entry hash
+    reports/ots/                    OpenTimestamps proofs, one per anchored entry (since 2026-07-28)
 
 ## Run it
 
