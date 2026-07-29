@@ -91,9 +91,23 @@ def main() -> int:
         action="store_true",
         help="Publish a pipeline-failure entry instead of a report",
     )
+    ap.add_argument(
+        "--methodology",
+        metavar="DESCRIPTION",
+        help="Publish a METHODOLOGY_CHANGE entry: a short description of a "
+             "deliberate change to how the system produces or grades its "
+             "record, so the change is part of the record instead of an "
+             "unexplained discontinuity in it",
+    )
     args = ap.parse_args()
 
-    if args.failed:
+    if args.methodology:
+        payload = {
+            "type": "METHODOLOGY_CHANGE",
+            "description": args.methodology,
+            "changed_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+    elif args.failed:
         payload = {
             "type": "PIPELINE_FAILURE",
             "note": "Nightly run did not complete. Published for record continuity.",
@@ -108,7 +122,8 @@ def main() -> int:
         }
     else:
         if not args.report:
-            print("error: --report or --brief required unless --failed", file=sys.stderr)
+            print("error: --report, --brief, --failed, or --methodology required",
+                  file=sys.stderr)
             return 2
         payload = json.loads(Path(args.report).read_text())
         payload["type"] = payload.get("type", "NIGHTLY_BRIEF")
