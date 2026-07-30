@@ -158,14 +158,16 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 
 ## Current state
 
-As of 2026-07-29: 13 chain entries, 4 predictions (1 gradeable, the rest
-"none"/no-signal), 0 labeled outcomes (0 of 30 distinct settle dates
-required for meta-model graduation). Multi-config stamping — every
-MC-passed config, not just the top pick — begins with the 2026-07-30 cycle;
-the change itself is documented in a METHODOLOGY_CHANGE chain entry.
+The chain holds NIGHTLY_BRIEF, LABELED_OUTCOME, PIPELINE_FAILURE, and
+METHODOLOGY_CHANGE entries. Multi-config stamping — every MC-passed config,
+not just the top pick — begins with the 2026-07-30 cycle; the change
+itself is documented in a METHODOLOGY_CHANGE chain entry. The meta-model
+needs 30 distinct settle dates with a labeled outcome before it trains on
+real data, and has none yet.
 
-Do not trust this paragraph — it goes stale. Run verify_chain.py for the
-live count.
+Entry counts, open predictions, and labeled outcomes change every night —
+run `python3 nightshift/verify_chain.py` for the live numbers rather than
+trusting a count written here.
 
 ## Layout
 
