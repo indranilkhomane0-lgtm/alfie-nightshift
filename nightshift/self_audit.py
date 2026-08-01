@@ -47,7 +47,9 @@ raised. This is a smoke detector, not a sprinkler system — nothing here
 blocks the nightly cycle. Each of the six checks also runs in its own
 try/except so one crashing check doesn't blank out the other five.
 
-Usage (called by run_and_publish.sh after nightshift/label_outcomes.py):
+Usage (called by run_and_publish.sh FIRST, before every early-exit guard,
+so it still runs on nights the cycle aborts -- the nights calendar-gap
+coverage most needs to see):
     python3 nightshift/self_audit.py
 """
 
@@ -130,10 +132,11 @@ def _run_check(fn, *args):
 # ── Check 1: calendar coverage ──────────────────────────────────────────
 
 def check_calendar_coverage(entries: list[dict]) -> dict:
-    """Every UTC date from the chain's own genesis through today must
+    """Every UTC date from the chain's own genesis through YESTERDAY must
     have >=1 entry of ANY type -- a PIPELINE_FAILURE is coverage, a
     silent gap is not. Genesis-relative, not hardcoded, so it never
-    flags the pre-chain period as missing."""
+    flags the pre-chain period as missing. Today is deliberately excluded;
+    see the inline comment on `end` below."""
     finding = {"name": "calendar_coverage", "status": "PASS", "detail": {}}
     if not entries:
         finding["status"] = "SKIP"
