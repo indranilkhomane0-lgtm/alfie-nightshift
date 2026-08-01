@@ -6,6 +6,12 @@ run_nightshift.py — Alfie Night Shift runner
   python run_nightshift.py --demo   # seed corpus + run cycle (test everything)
   python run_nightshift.py --health # corpus health report
   python run_nightshift.py --features # feature importances
+
+  python run_nightshift.py --allow-synthetic-prices   # OFFLINE TESTING ONLY:
+      # falls back to fabricated prices if Binance is unreachable, instead
+      # of aborting. Never pass this for a real nightly run -- the normal
+      # path aborts and lets run_and_publish.sh publish a PIPELINE_FAILURE
+      # rather than gate on invented data.
 """
 import argparse, logging, sys
 from datetime import date
@@ -70,14 +76,16 @@ def cmd_demo(args):
         for f,v in mm.top_features(10):
             print(f"  {f:35s}  {v:.4f}  {'█'*int(v*60)}")
     log.info("\nRunning full cycle …")
-    brief = Path(NightShiftCycle().run()).read_text()
+    brief = Path(NightShiftCycle(
+        allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
     print("\n" + brief)
 
 def cmd_full(args):
     from nightshift.db import init_db
     from nightshift.cycle import NightShiftCycle
     init_db()
-    brief = Path(NightShiftCycle().run()).read_text()
+    brief = Path(NightShiftCycle(
+        allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
     print("\n" + brief)
 
 def cmd_health(args):
@@ -101,6 +109,11 @@ if __name__ == "__main__":
     g.add_argument("--demo",     action="store_true")
     g.add_argument("--health",   action="store_true")
     g.add_argument("--features", action="store_true")
+    p.add_argument("--allow-synthetic-prices", action="store_true",
+        dest="allow_synthetic_prices",
+        help="Offline testing only: fall back to fabricated price series "
+             "if Binance is unreachable, instead of aborting the cycle. "
+             "Never set this for a real nightly run.")
     args = p.parse_args()
     if args.demo:     cmd_demo(args)
     elif args.health: cmd_health(args)

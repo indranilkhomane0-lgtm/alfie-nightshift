@@ -22,7 +22,14 @@ log = logging.getLogger(__name__)
 
 # ── Real Binance OHLCV fetcher ────────────────────────────────────────────────
 
-def load_price_data(asset: str, days: int = OHLCV_DAYS, status: dict = None) -> pd.DataFrame:
+def load_price_data(asset: str, days: int = OHLCV_DAYS, status: dict = None,
+                     allow_synthetic: bool = False) -> pd.DataFrame:
+    """Real Binance OHLCV. On failure, aborts the cycle by raising rather
+    than substituting fabricated prices -- a missing night is honest, a
+    night of invented prices that fed real gating decisions is not. The
+    only way to get fake data back is allow_synthetic=True, which nothing
+    in the nightly path ever passes; it exists solely for offline testing
+    (see run_nightshift.py --allow-synthetic-prices)."""
     try:
         exchange = ccxt.binance({"enableRateLimit": True})
         since    = exchange.milliseconds() - days * 24 * 60 * 60 * 1000
@@ -35,11 +42,20 @@ def load_price_data(asset: str, days: int = OHLCV_DAYS, status: dict = None) -> 
         if status is not None: status[asset] = True
         return df
     except Exception as e:
-        log.warning("Binance fetch failed for %s: %s — using synthetic fallback", asset, e)
         if status is not None: status[asset] = False
-        return _synthetic(asset, days)
+        if allow_synthetic:
+            log.warning("Binance fetch failed for %s: %s — using synthetic "
+                        "fallback (allow_synthetic=True, offline test mode)",
+                        asset, e)
+            return _synthetic(asset, days)
+        log.error("Binance fetch failed for %s: %s — aborting cycle "
+                  "(synthetic fallback disabled)", asset, e)
+        raise RuntimeError(f"price fetch failed for {asset}, refusing to "
+                            f"proceed on fabricated data: {e}") from e
 
 def _synthetic(asset: str, days: int) -> pd.DataFrame:
+    """Offline-testing-only fallback. Never called from the nightly path --
+    see load_price_data's allow_synthetic gate."""
     np.random.seed(hash(asset) % 2**31)
     ret   = np.random.normal(0.001, 0.03, days)
     close = 100 * np.cumprod(1 + ret)
@@ -114,11 +130,16 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
 # ── Main cycle ────────────────────────────────────────────────────────────────
 
 class NightShiftCycle:
-    def __init__(self, cycle_id=None, live_monitor=None):
+    def __init__(self, cycle_id=None, live_monitor=None, allow_synthetic_prices=False):
         self.cycle_id   = cycle_id or int(date.today().strftime("%Y%m%d"))
         self.monitor    = live_monitor or LiveMonitor()
         self.regime_eng = RegimeEngine()
         self.meta       = get_meta_model()
+        # Offline-testing-only escape hatch -- see load_price_data. The
+        # nightly path (run_and_publish.sh -> run_nightshift.py with no
+        # flags) never sets this, so a real fetch failure always aborts
+        # the cycle instead of running gates on fabricated prices.
+        self.allow_synthetic_prices = allow_synthetic_prices
 
     def run(self):
         t0 = time.time()
@@ -139,7 +160,9 @@ class NightShiftCycle:
         # Stage 1 — ingest
         log.info("Stage 1/7: Fetching market data from Binance …")
         price_status = {}
-        prices  = {a: load_price_data(a, status=price_status) for a in ASSETS}
+        prices  = {a: load_price_data(a, status=price_status,
+                                       allow_synthetic=self.allow_synthetic_prices)
+                   for a in ASSETS}
         signals, signal_status = {}, {}
         for a in ASSETS:
             signals[a], signal_status[a] = get_all_signals_with_status(a)
