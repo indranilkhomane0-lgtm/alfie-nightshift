@@ -49,7 +49,11 @@ def get_conn():
     return conn
 
 def init_db():
-    with get_conn() as c: c.executescript(DDL)
+    with get_conn() as c:
+        c.executescript(DDL)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(corpus)").fetchall()]
+        if "void_reason" not in cols:
+            c.execute("ALTER TABLE corpus ADD COLUMN void_reason TEXT")
     log.info("DB ready at %s", DB_PATH)
 
 def insert_config_entry(cycle_id, config):
@@ -88,17 +92,20 @@ def update_live_outcome(config_id, deployment_date, live_sharpe,
 def get_labelled_corpus():
     with get_conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM corpus WHERE survived IS NOT NULL ORDER BY deployment_date").fetchall()]
+            "SELECT * FROM corpus WHERE survived IS NOT NULL AND void_reason IS NULL "
+            "ORDER BY deployment_date").fetchall()]
 
 def get_pending_outcomes(cutoff_date):
     with get_conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM corpus WHERE survived IS NULL AND deployment_date<=?",
-            (cutoff_date,)).fetchall()]
+            "SELECT * FROM corpus WHERE survived IS NULL AND void_reason IS NULL "
+            "AND deployment_date<=?", (cutoff_date,)).fetchall()]
 
 def corpus_size():
     with get_conn() as c:
-        return c.execute("SELECT COUNT(*) FROM corpus WHERE survived IS NOT NULL").fetchone()[0]
+        return c.execute(
+            "SELECT COUNT(*) FROM corpus WHERE survived IS NOT NULL AND void_reason IS NULL"
+        ).fetchone()[0]
 
 def labeled_date_count():
     """Distinct outcome dates with >=1 labeled row. Configs deployed the same
@@ -106,14 +113,30 @@ def labeled_date_count():
     roughly one night's worth of independent evidence, not one-per-row."""
     with get_conn() as c:
         return c.execute(
-            "SELECT COUNT(DISTINCT outcome_date) FROM corpus WHERE survived IS NOT NULL"
+            "SELECT COUNT(DISTINCT outcome_date) FROM corpus "
+            "WHERE survived IS NOT NULL AND void_reason IS NULL"
         ).fetchone()[0]
 
 def regime_corpus_size(regime):
     with get_conn() as c:
         return c.execute(
-            "SELECT COUNT(*) FROM corpus WHERE survived IS NOT NULL AND regime_state=?",
+            "SELECT COUNT(*) FROM corpus WHERE survived IS NOT NULL "
+            "AND void_reason IS NULL AND regime_state=?",
             (regime,)).fetchone()[0]
+
+def void_corpus_entries(deployment_dates, reason):
+    """Permanently exclude corpus rows from the meta-model's training corpus
+    without deleting them -- covers get_labelled_corpus/corpus_size/
+    labeled_date_count/regime_corpus_size, and stops get_pending_outcomes
+    from ever assigning them a survived/decay_ratio label in the first
+    place. Returns the number of rows newly voided."""
+    placeholders = ",".join("?" for _ in deployment_dates)
+    with get_conn() as c:
+        cur = c.execute(
+            f"UPDATE corpus SET void_reason=?, updated_at=datetime('now') "
+            f"WHERE deployment_date IN ({placeholders}) AND void_reason IS NULL",
+            (reason, *deployment_dates))
+        return cur.rowcount
 
 def log_cycle_start(cycle_id, cycle_date):
     with get_conn() as c:

@@ -16,6 +16,13 @@ Grading rule (fixed, never changed retroactively):
 
 NO_CALL exists so the record never claims credit for a call it didn't make.
 Run daily; it is idempotent and does nothing until a settle date arrives.
+
+A row can also carry status VOID instead of OPEN/LABELED -- set by
+nightshift/void_predictions.py when a prediction's inputs are later found
+to be invalid (e.g. entry price read from fabricated data). VOID rows are
+never selected below: the "still OPEN" filter excludes them the same way
+it excludes anything already LABELED. They stay in the file with an
+explicit void_reason rather than being deleted.
 """
 
 import json
