@@ -41,8 +41,9 @@ entries before that don't carry either field; verify_chain.py labels them
 The chain currently holds four entry types:
 
 - **NIGHTLY_BRIEF** — the brief produced by that night's pipeline run
-  (regime, ranked configs, monitor status), referenced by its own sha256
-  rather than embedded in full
+  (regime, ranked configs, live-health section), referenced by its own
+  sha256 rather than embedded in full. The live-health section always
+  reads "No strategies currently deployed" — see the disclosure below.
 - **LABELED_OUTCOME** — a stamped prediction's graded result once its
   settle date arrives: WIN, LOSS, or NO_CALL
 - **PIPELINE_FAILURE** — published when a nightly run doesn't complete, so
@@ -123,7 +124,9 @@ takes credit for a call it did not make.
 Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 
 1. Ingest — 500 days of OHLCV plus derivatives signals
-2. Collect pending outcomes — pull results from live-monitored configs
+2. Collect pending outcomes — intended to pull results from
+   live-monitored configs. In the current code this is a no-op every
+   night: see "Known defect — live monitoring never runs" below.
 3. Regime classification — 4-state HMM (low-vol bull, high-vol bull,
    choppy/ranging, crisis/bear); each regime gates which strategy families
    are eligible to run at all
@@ -131,9 +134,43 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
    per asset, with a minimum OOS Sharpe floor
 5. Monte Carlo gating — 5 gates covering noise, slippage, parameter
    perturbation, and block resampling; a config must pass all five
-6. Meta-model ranking — survival model ranks the survivors
-7. Live monitor + brief — decay checks, auto-suspend, then the brief is
-   written and chained
+6. Meta-model ranking — intended to rank survivors with a trained
+   survival model. It has never trained on real data (see below) and
+   currently always falls back to ranking by GT-Score instead.
+7. Live monitor + brief — intended to run decay checks and auto-suspend
+   before the brief is written and chained. Neither has ever executed;
+   the brief is still written and chained every night regardless.
+
+### Known defect — live monitoring never runs
+
+`LiveMonitor.register()` (nightshift/live_monitor.py) is the method that
+adds a deployed config to the monitor's tracking dict. It has never been
+called from anywhere in the pipeline, in any commit since the system's
+first commit, 607da1f ("Add Alfie Night Shift — 7-stage autonomous
+overnight cycle", 2026-06-18). The monitor's internal dict is therefore
+always empty, which means:
+
+- Stage 2 (`collect_pending_outcomes`) never has any live performance to
+  read, so it never writes a `survived` or `decay_ratio` label onto a
+  corpus row. As of this writing, zero of the real rows in `corpus.db`
+  have ever received either label.
+- Stage 7's decay checks and drawdown-based early-stop
+  (`LiveMonitor.check()`) have never run on a real config, no row has
+  ever been written to the `live_monitor` table, and the auto-suspend
+  branch in `cycle.py` has never fired.
+- The meta-model's real-data training path requires 30 distinct labeled
+  settle dates, which requires the labels above. It has therefore never
+  trained on real data and cannot graduate out of fallback mode until
+  this is fixed — not merely because the corpus is still small, but
+  because nothing on the real path currently produces the label at all.
+  (Training has occurred exactly once, on 60 fully synthetic `DEMO_*`
+  rows seeded by `run_nightshift.py --demo`, which write the labels
+  directly and bypass `LiveMonitor` entirely; that run is not part of
+  the real corpus.)
+
+This is disclosed on the chain as a METHODOLOGY_CHANGE entry published
+2026-08-01. It is a disclosure, not yet a fix — `register()` is still
+unwired as of this commit.
 
 ## Honest limitations
 
@@ -142,13 +179,18 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 - The record is weeks old, not years. Any track record this short is
   statistically weak. That is the point of publishing it from day one
   rather than after it looks good.
-- The meta-model is in fallback mode. It requires 30 distinct settle dates
-  with a labeled outcome before it trains on real data, not 30 labeled
-  rows — several configs stamped the same night are correlated (same
-  market data, same regime) and carry roughly one night's worth of
-  independent evidence between them, not one row's worth each. It does not
-  have 30 yet. Until then its ranking is a heuristic, not a learned model,
-  and the repo says so.
+- The meta-model is in fallback mode, and cannot leave it as the code
+  currently stands. It requires 30 distinct settle dates with a labeled
+  outcome before it trains on real data, not 30 labeled rows — several
+  configs stamped the same night are correlated (same market data, same
+  regime) and carry roughly one night's worth of independent evidence
+  between them, not one row's worth each. It does not have 30 yet, and
+  more nights alone will not get it there: the live-monitoring step that
+  would assign those labels (`LiveMonitor.register()`) has never been
+  called from the pipeline, so zero real rows have ever been labeled.
+  See "Known defect — live monitoring never runs" above and the
+  2026-08-01 METHODOLOGY_CHANGE chain entry. Until this is fixed, ranking
+  is a heuristic (GT-Score), not a learned model, and the repo says so.
 - Roughly half of all asset-nights produce no config that clears Monte
   Carlo gating. That is the gating doing its job, not a malfunction — but
   it's also why the record accumulates slowly.
@@ -158,12 +200,15 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 
 ## Current state
 
-The chain holds NIGHTLY_BRIEF, LABELED_OUTCOME, PIPELINE_FAILURE, and
-METHODOLOGY_CHANGE entries. Multi-config stamping — every MC-passed config,
-not just the top pick — begins with the 2026-07-30 cycle; the change
-itself is documented in a METHODOLOGY_CHANGE chain entry. The meta-model
-needs 30 distinct settle dates with a labeled outcome before it trains on
-real data, and has none yet.
+The chain holds NIGHTLY_BRIEF, LABELED_OUTCOME, PIPELINE_FAILURE,
+METHODOLOGY_CHANGE, and VOID_DECISION entries. Multi-config stamping —
+every MC-passed config, not just the top pick — begins with the
+2026-07-30 cycle; the change itself is documented in a METHODOLOGY_CHANGE
+chain entry. The meta-model needs 30 distinct settle dates with a labeled
+outcome before it trains on real data and has none yet — and, per the
+2026-08-01 METHODOLOGY_CHANGE entry, cannot acquire any under the current
+code, since the live-monitoring step that would label them is never
+invoked (see "Known defect — live monitoring never runs" above).
 
 Entry counts, open predictions, and labeled outcomes change every night —
 run `python3 nightshift/verify_chain.py` for the live numbers rather than
