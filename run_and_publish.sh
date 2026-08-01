@@ -26,10 +26,19 @@ if grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
   exit 0
 fi
 
-# B1a -- PRECONDITION GUARD: wait up to 5 min for DNS before doing anything
+# B1a -- PRECONDITION GUARD: wait up to 5 min for real connectivity before
+# doing anything. nslookup can resolve from a stale local DNS cache even
+# with no actual route to the internet -- seen 2026-07-31 and 2026-08-01,
+# where the guard passed (cached resolution) while every real connection
+# failed, so the pipeline ran with no network and every push retry failed
+# too. Root cause is likely that the Mac wakes at 5:25 IST but Wi-Fi hasn't
+# associated by 5:30. Test an actual TCP+TLS connection to the host we
+# need (github.com:443), not just name resolution.
 NET=0
 for i in $(seq 1 30); do
-  if nslookup github.com >/dev/null 2>&1; then NET=1; break; fi
+  if curl --connect-timeout 5 --max-time 8 -sS -o /dev/null https://github.com; then
+    NET=1; break
+  fi
   sleep 10
 done
 if [ $NET -eq 0 ]; then
