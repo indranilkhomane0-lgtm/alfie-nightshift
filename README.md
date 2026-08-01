@@ -130,8 +130,11 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
 3. Regime classification — 4-state HMM (low-vol bull, high-vol bull,
    choppy/ranging, crisis/bear); each regime gates which strategy families
    are eligible to run at all
-4. Walk-forward optimisation — out-of-sample parameter search per family
-   per asset, with a minimum OOS Sharpe floor
+4. Walk-forward optimisation — intended to be an out-of-sample parameter
+   search per family per asset, with a minimum OOS Sharpe floor. The
+   parameter-selection step is not actually held out from the data it's
+   later scored against: see "Known defect — WFO metrics are not
+   genuinely out-of-sample" below.
 5. Monte Carlo gating — 5 gates covering noise, slippage, parameter
    perturbation, and block resampling; a config must pass all five
 6. Meta-model ranking — intended to rank survivors with a trained
@@ -172,6 +175,42 @@ This is disclosed on the chain as a METHODOLOGY_CHANGE entry published
 2026-08-01. It is a disclosure, not yet a fix — `register()` is still
 unwired as of this commit.
 
+### Known defect — WFO metrics are not genuinely out-of-sample
+
+`WFOEngine.optimise()` (nightshift/wfo_engine.py) sets `train_all = prices`
+(line 89) — the full ~500-day price series for the asset, not a slice held
+out from any fold. The Optuna objective (lines 92-98) scores every
+candidate parameter set by running it against that full series, and
+`top_params` (lines 104-113) is selected purely by that full-history
+score. Only afterward are the already-chosen parameter sets re-evaluated
+on windowed fold slices drawn from the same series (lines 119-133), and
+those returns are the ones labeled OOS and used for `sharpe_oos`,
+`gt_score_oos`, `max_dd_oos`, `sortino_oos`, `calmar_oos`, and
+`win_rate_oos` (lines 136-151).
+
+Because parameter selection already used performance on the very days
+later scored as "out-of-sample," those days were never actually held
+out, and `MIN_OOS_SHARPE` (the gate at line 141) has been filtering on
+an inflated metric rather than a genuine holdout Sharpe. Every
+`sharpe_oos`, `gt_score_oos`, and `max_dd_oos` figure printed in a
+brief or written to a corpus row, for every night this system has run,
+should be read as in-sample-influenced, not as a true holdout result.
+
+This does **not** affect the integrity of the record itself. Predictions
+are still stamped before settlement with a fixed entry price and settle
+date (nightshift/stamp_prediction.py), and graded afterward against real
+Binance closes by a rule fixed in advance and never changed retroactively
+(nightshift/label_outcomes.py). The WIN/LOSS/NO_CALL grading on the chain
+does not depend on `wfo_engine.py` and is unaffected. This is a defect in
+how candidate configs are scored and selected, not a tampering or
+grading-integrity issue.
+
+The defect has existed since the system's initial commit, 607da1f
+(2026-06-18), and is present in every WFO run to date. This is disclosed
+on the chain as a METHODOLOGY_CHANGE entry published 2026-08-01. It is a
+disclosure, not yet a fix — the objective in `wfo_engine.py` is still
+unchanged as of this commit.
+
 ## Honest limitations
 
 - Paper only. No live capital has ever been deployed. Nothing here is a
@@ -191,6 +230,15 @@ unwired as of this commit.
   See "Known defect — live monitoring never runs" above and the
   2026-08-01 METHODOLOGY_CHANGE chain entry. Until this is fixed, ranking
   is a heuristic (GT-Score), not a learned model, and the repo says so.
+- The WFO "out-of-sample" Sharpe/GT-Score/max-drawdown figures are not
+  currently genuine holdout results — parameter selection uses the same
+  data later scored as OOS, so `MIN_OOS_SHARPE` gating and every reported
+  WFO metric to date are in-sample-influenced. This does not affect
+  outcome grading (predictions are still stamped before settlement and
+  graded against real closes by a rule fixed in advance) — it affects
+  which configs get selected and how good they're reported to look. See
+  "Known defect — WFO metrics are not genuinely out-of-sample" above and
+  the 2026-08-01 METHODOLOGY_CHANGE chain entry.
 - Roughly half of all asset-nights produce no config that clears Monte
   Carlo gating. That is the gating doing its job, not a malfunction — but
   it's also why the record accumulates slowly.
