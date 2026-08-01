@@ -7,6 +7,27 @@ TODAY_BRIEF="nightshift/briefs/brief_$(date -u +%Y%m%d).txt"
 
 echo "=== $(date -u) start (dry=$DRY) ===" >> "$LOG"
 
+# AUDIT -- runs FIRST, before every guard below, because the guards exit
+# early on exactly the nights the audit most needs to see: an already-
+# chained night, a network failure, a failed cycle. Placing it after them
+# (as originally wired) meant it only ran on clean nights -- the inverse
+# of what calendar-gap coverage is for. It audits the settled record and
+# the current source, neither of which depends on tonight's run, so
+# running before the cycle costs nothing. Idempotent per UTC day and
+# wrapped in its own try/except -- never blocks. It commits and pushes
+# its own output, since the paths below may exit before ever reaching the
+# commit machinery at the end of this script.
+if [ $DRY -eq 0 ]; then
+  "$PY" nightshift/self_audit.py >> "$LOG" 2>&1 || true
+  if ! git diff --quiet reports/chain.jsonl 2>/dev/null || [ -n "$(git status --porcelain reports/audit/ 2>/dev/null)" ]; then
+    git add reports/chain.jsonl reports/audit/ >> "$LOG" 2>&1
+    git commit -m "Night Shift self-audit $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
+    git push >> "$LOG" 2>&1 || echo "audit push failed -- will ride along with a later push" >> "$LOG"
+  fi
+else
+  echo "DRY RUN -- would run self_audit.py" >> "$LOG"
+fi
+
 # FALLBACK GUARD -- launchd now fires this up to 3x/night as a redundancy
 # measure. If tonight is already chained, don't re-run the (expensive,
 # stochastic) pipeline again -- that would re-fetch fresh market data and
@@ -88,7 +109,7 @@ fi
 # LABEL -- grade any predictions whose settle date has arrived
 "$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
 
-git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ >> "$LOG" 2>&1
+git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ reports/audit/ >> "$LOG" 2>&1
 if git diff --cached --quiet; then echo "No new brief -- nothing to publish" >> "$LOG"; exit 0; fi
 
 if [ $DRY -eq 1 ]; then echo "DRY RUN -- would publish:" >> "$LOG"; git diff --cached --name-only >> "$LOG"; git reset -q; exit 0; fi
