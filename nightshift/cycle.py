@@ -16,13 +16,13 @@ from nightshift.mc_gate import run_mc_gates
 from nightshift.meta_model import get_meta_model
 from nightshift.live_monitor import LiveMonitor
 from nightshift.strategies import STRATEGY_REGISTRY
-from nightshift.derivatives import get_all_signals
+from nightshift.derivatives import get_all_signals_with_status
 
 log = logging.getLogger(__name__)
 
 # ── Real Binance OHLCV fetcher ────────────────────────────────────────────────
 
-def load_price_data(asset: str, days: int = OHLCV_DAYS) -> pd.DataFrame:
+def load_price_data(asset: str, days: int = OHLCV_DAYS, status: dict = None) -> pd.DataFrame:
     try:
         exchange = ccxt.binance({"enableRateLimit": True})
         since    = exchange.milliseconds() - days * 24 * 60 * 60 * 1000
@@ -32,9 +32,11 @@ def load_price_data(asset: str, days: int = OHLCV_DAYS) -> pd.DataFrame:
         df.index = pd.to_datetime(df["timestamp"], unit="ms")
         df       = df[["open","high","low","close","volume"]].astype(float)
         log.info("Fetched %d bars for %s from Binance", len(df), asset)
+        if status is not None: status[asset] = True
         return df
     except Exception as e:
         log.warning("Binance fetch failed for %s: %s — using synthetic fallback", asset, e)
+        if status is not None: status[asset] = False
         return _synthetic(asset, days)
 
 def _synthetic(asset: str, days: int) -> pd.DataFrame:
@@ -136,8 +138,11 @@ class NightShiftCycle:
     def _stages(self, t0):
         # Stage 1 — ingest
         log.info("Stage 1/7: Fetching market data from Binance …")
-        prices  = {a: load_price_data(a) for a in ASSETS}
-        signals = {a: get_all_signals(a) for a in ASSETS}
+        price_status = {}
+        prices  = {a: load_price_data(a, status=price_status) for a in ASSETS}
+        signals, signal_status = {}, {}
+        for a in ASSETS:
+            signals[a], signal_status[a] = get_all_signals_with_status(a)
         log.info("  %d assets loaded", len(ASSETS))
 
         # Stage 2 — collect pending outcomes
@@ -233,6 +238,15 @@ class NightShiftCycle:
                             top3m, corpus_size(), duration)
         brief_path = str(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
         Path(brief_path).write_text(brief_text, encoding="utf-8")
+
+        # Sidecar for publish_chain.py: which data sources were real tonight
+        # vs. fell back to a default, so a degraded night is visible in the
+        # chained record instead of looking identical to a clean one.
+        completeness_path = Path(brief_path).with_suffix(".completeness.json")
+        completeness_path.write_text(json.dumps(
+            {"price": price_status, "derivatives": signal_status},
+            sort_keys=True, indent=2,
+        ), encoding="utf-8")
 
         # --- prediction stamp: record a gradeable claim for the labeler ---
         # One prediction per config that passed MC gating (all assets, not just

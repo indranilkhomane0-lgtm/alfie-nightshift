@@ -120,6 +120,13 @@ def main() -> int:
             "brief_file": Path(args.brief).name,
             "brief_sha256": hashlib.sha256(text.encode()).hexdigest(),
         }
+        # data-completeness sidecar written by cycle.py next to the brief:
+        # which data sources were real tonight vs. fell back to a default.
+        # Older briefs (before this existed) simply have no sidecar and the
+        # field is omitted rather than guessed.
+        completeness_path = Path(args.brief).with_suffix(".completeness.json")
+        if completeness_path.exists():
+            payload["data_completeness"] = json.loads(completeness_path.read_text())
     else:
         if not args.report:
             print("error: --report, --brief, --failed, or --methodology required",
