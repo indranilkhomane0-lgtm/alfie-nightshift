@@ -93,8 +93,69 @@ def relative_params(trial):
             "exit_z":trial.suggest_float("exit_z",0.0,0.8),
             "max_hold_days":trial.suggest_int("max_hold_days",3,14)}
 
+def breakout_strategy(prices, params):
+    """Donchian channel breakout, long-only.
+
+    Enter when close exceeds the highest close of the prior `lookback` days
+    (excluding today, so the condition is knowable at the close being acted
+    on and never uses its own bar). Exit on a close below the prior
+    `exit_lookback`-day low, or after `max_hold_days`, whichever comes
+    first.
+
+    Deliberately the textbook Donchian rule and nothing more. This family
+    exists because REGIME_FAMILY_GATE has listed "breakout" as eligible in
+    regime 0 since the first commit while STRATEGY_REGISTRY never
+    implemented it -- a gate/registry mismatch self_audit check 6 has been
+    reporting nightly. It is added to close that gap and to raise the share
+    of nights with a live entry signal (measured 21.8% across the existing
+    three families), NOT because it is expected to be a better strategy.
+    Breakouts fire on different days than mean reversion and momentum,
+    which is the entire point: more nights with a gradeable signal, without
+    loosening any threshold on the families already here.
+
+    Long-only, matching every other family. The stamper cannot emit
+    "short".
+    """
+    close = prices["close"]
+    lb    = int(params.get("lookback", 20))
+    xlb   = int(params.get("exit_lookback", 10))
+    mh    = int(params.get("max_hold_days", 10))
+    if lb >= len(prices) - 5 or xlb >= len(prices) - 5:
+        return np.zeros(len(prices))
+
+    # shift(1) excludes today's bar from its own channel -- without it the
+    # high would include the close being tested and the rule could never
+    # trigger correctly. This is the look-ahead trap for this family.
+    upper = close.rolling(lb).max().shift(1)
+    lower = close.rolling(xlb).min().shift(1)
+
+    sig  = pd.Series(0.0, index=prices.index)
+    hold = 0
+    in_t = False
+    for i in range(1, len(prices)):
+        c, u, l = close.iloc[i], upper.iloc[i], lower.iloc[i]
+        if np.isnan(u) or np.isnan(l):
+            continue
+        if not in_t:
+            if c > u:
+                sig.iloc[i] = 1.0; in_t = True; hold = mh
+        else:
+            hold -= 1
+            if c < l or hold <= 0:
+                sig.iloc[i] = 0.0; in_t = False
+            else:
+                sig.iloc[i] = 1.0
+    return _safe_ret(prices, sig)
+
+def breakout_params(trial):
+    lb = trial.suggest_int("lookback", 10, 60)
+    return {"lookback": lb,
+            "exit_lookback": trial.suggest_int("exit_lookback", 5, max(6, lb // 2)),
+            "max_hold_days": trial.suggest_int("max_hold_days", 3, 20)}
+
 STRATEGY_REGISTRY = {
     "momentum": {"fn":momentum_strategy,"param_space":momentum_params,"family":"momentum"},
     "mean_rev": {"fn":mean_rev_strategy,"param_space":mean_rev_params,"family":"mean_rev"},
     "relative": {"fn":relative_strategy,"param_space":relative_params,"family":"relative"},
+    "breakout": {"fn":breakout_strategy,"param_space":breakout_params,"family":"breakout"},
 }
