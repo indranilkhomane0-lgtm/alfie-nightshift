@@ -1,18 +1,32 @@
-name: Alfie Night Shift
+name: Alfie Night Shift (DISABLED 2026-08-02)
+
+# DISABLED. This workflow ran 4x/day with `permissions: contents: write`,
+# executed orchestrator.py (the 2026-06-16 Day-1 code, not the nightshift
+# pipeline), then ran `git add -A && git commit && git push`.
+#
+# Audited 2026-08-02: it has NEVER produced a commit -- there is no "Alfie
+# Bot" author anywhere in the repo history -- so it was doing nothing useful
+# while holding write access to the record on a schedule.
+#
+# Two reasons it is off rather than left running harmlessly:
+#   1. `git add -A` from an unattended bot commits whatever is untracked at
+#      that moment, and it can race the Mac's own push.
+#   2. reports/chain.jsonl must have exactly ONE writer. Two independent
+#      machines appending to a hash chain can fork it, and a forked chain is
+#      strictly worse than a missed night: a gap is honest and visible, two
+#      conflicting histories destroy the single property this record exists
+#      to provide.
+#
+# Left runnable by hand (workflow_dispatch) rather than deleted, so the file
+# and its history stay inspectable. If a cloud-side safety net is wanted
+# later, the correct shape is a DETECTOR -- check whether today has a chain
+# entry and open an issue if not -- with no write access to the chain.
 
 on:
-  schedule:
-    # 6:00 AM IST = 00:30 UTC
-    - cron: '30 0 * * *'
-    # 7:00 AM IST = 01:30 UTC
-    - cron: '30 1 * * *'
-    # 1:30 PM IST = 08:00 UTC
-    - cron: '0 8 * * *'
-    # 9:30 PM IST = 16:00 UTC
-    - cron: '0 16 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   run-collectors:
