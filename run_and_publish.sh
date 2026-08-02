@@ -1,4 +1,20 @@
 #!/bin/bash
+# B1c -- KEEP THE MAC AWAKE FOR THE WHOLE RUN.
+# pmset reports `sleep 1`: this machine idle-sleeps after ONE minute. Until
+# 2026-07-30 the cycle finished in ~15s and always beat that timer. On
+# 2026-07-31 cycle duration jumped to ~395s (6.6 min), and from that night
+# on the Mac fell asleep mid-cycle: the network guard passed at ~10s, then
+# the push six minutes later hit a 75s connect timeout against a sleeping
+# network stack. Nights 07-31 and 08-01 both show `network ready after ~10s`
+# followed by three failed pushes -- the guard was never the problem, so
+# widening its window would not have helped.
+# caffeinate holds off idle/disk/system sleep for exactly as long as this
+# script runs, then releases. Re-exec once, guarded by an env var so the
+# nested invocation doesn't loop.
+if [ -z "$ALFIE_CAFFEINATED" ] && command -v caffeinate >/dev/null 2>&1; then
+  export ALFIE_CAFFEINATED=1
+  exec caffeinate -i -m -s "$0" "$@"
+fi
 cd "$(dirname "$0")" || exit 1
 PY="./venv/bin/python"
 LOG="nightshift/logs/publish_$(date -u +%Y%m%d).log"
@@ -98,7 +114,9 @@ fi
 # file -- label_outcomes.py below appends LABELED_OUTCOME entries after the
 # brief, so the brief is not necessarily the last line)
 if [ -f "$TODAY_BRIEF" ]; then
-  if ! grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
+  if [ $DRY -eq 1 ]; then
+    echo "DRY RUN -- would chain brief + anchor (skipped)" >> "$LOG"
+  elif ! grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
     "$PY" nightshift/publish_chain.py --brief "$TODAY_BRIEF" >> "$LOG" 2>&1
     "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
   else
@@ -107,7 +125,17 @@ if [ -f "$TODAY_BRIEF" ]; then
 fi
 
 # LABEL -- grade any predictions whose settle date has arrived
-"$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
+# NOTE (2026-08-02): --dry previously gated only the git commit/push, so a
+# "dry" run still ran the cycle, chained a NIGHTLY_BRIEF, anchored it, and
+# wrote LABELED_OUTCOME entries -- i.e. it mutated the permanent record
+# under a flag whose name promises it won't. Found by running --dry during
+# a debugging session and watching the chain grow by two entries. Both the
+# CHAIN block above and the LABEL call below are now gated.
+if [ $DRY -eq 1 ]; then
+  echo "DRY RUN -- would grade settled predictions (skipped)" >> "$LOG"
+else
+  "$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
+fi
 
 git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ reports/audit/ >> "$LOG" 2>&1
 if git diff --cached --quiet; then echo "No new brief -- nothing to publish" >> "$LOG"; exit 0; fi
