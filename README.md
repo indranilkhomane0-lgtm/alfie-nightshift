@@ -101,10 +101,15 @@ enters the record. An asset with zero configs clearing the gates is
 recorded with direction "none" rather than simply omitted, so a quiet night
 for an asset is a stated fact, not a gap you have to notice on your own.
 
-Every strategy in this repo is long-only. The stamper can therefore emit only
-"long" (the strategy's entry condition is true today) or "none" (no entry
-signal). It never emits "short". The record must not claim a call the system
-never made.
+Every strategy in this repo is long-only, so the stamper never emits "short".
+It emits "long" when the strategy's entry condition is true today, and "none"
+when there is no entry signal. A third value, "neutral", also appears in the
+record — see reports/predictions.jsonl for 2026-07-24 — and is graded
+NO_CALL exactly like "none". Earlier versions of this section said only
+"long" and "none" were possible; that was wrong, and the record disagreed
+with it. The rule that matters is unchanged: anything other than "long" is
+NO_CALL and is excluded from the corpus. The record must not claim a call the
+system never made.
 
 ## Outcomes are graded by a fixed rule
 
@@ -118,6 +123,23 @@ retroactively:
 
 The labeled outcome is then chained. NO_CALL exists so the record never
 takes credit for a call it did not make.
+
+Two properties of that rule, stated rather than left to be discovered:
+
+**A flat close is a LOSS.** The comparison is strictly greater-than, so
+`settle_close == entry_price` grades LOSS, not WIN and not a draw. There is
+no draw category. At these price scales exact equality is vanishingly
+unlikely, and grading a flat outcome as a loss is the conservative
+direction — but it is an asymmetry, it is in the code, and it should not be
+something a reader finds by reading `grade()` themselves.
+
+**Grading happens the day after the settle date, not on it.** A daily close
+does not exist until its UTC day has ended; Binance returns an in-progress
+candle whose "close" is merely the last trade so far. `fetch_settle_close()`
+returns None until the settle day's bar is final, and the due-check requires
+the settle date to be strictly before today. So a prediction settling on the
+3rd is graded on the 4th. An outcome that has not appeared on its settle
+date is the rule working, not the labeler failing.
 
 ## The nightly pipeline
 
