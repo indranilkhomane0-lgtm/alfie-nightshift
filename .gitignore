@@ -16,3 +16,4 @@ nightshift/logs/*.log
 *.demo-backup
 nightshift/corpus.db
 nightshift/meta_model.pkl
+nightshift/.run.lock/

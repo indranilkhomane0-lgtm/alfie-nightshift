@@ -21,6 +21,34 @@ LOG="nightshift/logs/publish_$(date -u +%Y%m%d).log"
 DRY=0; [ "$1" = "--dry" ] && DRY=1
 TODAY_BRIEF="nightshift/briefs/brief_$(date -u +%Y%m%d).txt"
 
+# B1d -- SINGLE-INSTANCE LOCK.
+# launchd fires this at 05:30, 05:50 and 06:10 IST. The fallback guard below
+# only short-circuits once tonight's brief is ALREADY CHAINED -- so while a
+# cycle is still running, a later fire sails straight past it and starts a
+# second concurrent cycle writing to the same corpus.db and the same
+# chain.jsonl. Cycle duration is regime-dependent and volatile (17s on
+# 2026-08-02, 395s on 07-31 and 08-01), so 20-minute spacing is not a safe
+# margin -- and any future WFO change that slows the cycle makes a collision
+# routine rather than theoretical. macOS ships no flock(1); mkdir is atomic
+# on every POSIX filesystem, so use that. A lock whose owner is gone and
+# which is >2h old is treated as stale (crashed run) and reclaimed.
+LOCKDIR="nightshift/.run.lock"
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  LOCKPID=$(cat "$LOCKDIR/pid" 2>/dev/null)
+  if [ -n "$LOCKPID" ] && kill -0 "$LOCKPID" 2>/dev/null; then
+    echo "=== $(date -u) SKIPPED -- run pid $LOCKPID still active ===" >> "$LOG"
+    exit 0
+  fi
+  if [ -z "$(find "$LOCKDIR" -maxdepth 0 -mmin +120 2>/dev/null)" ]; then
+    echo "=== $(date -u) SKIPPED -- lock held (pid ${LOCKPID:-unknown} gone, <2h old) ===" >> "$LOG"
+    exit 0
+  fi
+  echo "=== $(date -u) stale lock >2h (pid ${LOCKPID:-unknown} gone) -- reclaiming ===" >> "$LOG"
+  rm -rf "$LOCKDIR" && mkdir "$LOCKDIR" || { echo "could not reclaim lock" >> "$LOG"; exit 1; }
+fi
+echo $$ > "$LOCKDIR/pid"
+trap 'rm -rf "$LOCKDIR"' EXIT INT TERM
+
 echo "=== $(date -u) start (dry=$DRY) ===" >> "$LOG"
 
 # AUDIT -- runs FIRST, before every guard below, because the guards exit
