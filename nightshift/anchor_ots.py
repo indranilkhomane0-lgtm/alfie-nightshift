@@ -42,6 +42,17 @@ STAMP_TIMEOUT_S = 15
 UPGRADE_TIMEOUT_S = 15
 UPGRADE_TOTAL_BUDGET_S = 30
 
+# Entries published before this date predate anchoring and are covered by
+# the hash chain alone (stated in README). Keep in sync with
+# self_audit.OTS_ANCHORING_START.
+ANCHORING_START = "2026-07-28"
+# Bound the backlog sweep so a night that chains several entries, or a
+# stretch of unreachable calendars, can never stall the nightly run.
+STAMP_TOTAL_BUDGET_S = 90
+# Calendars are either up or down; after this many consecutive failures,
+# stop trying tonight rather than burning the budget one timeout at a time.
+STAMP_MAX_CONSECUTIVE_FAILURES = 2
+
 
 def find_ots() -> str | None:
     """launchd runs with a minimal PATH, so venv/bin (where pip installs
@@ -65,6 +76,42 @@ def last_entry_hash() -> str:
     with CHAIN_PATH.open("rb") as f:
         last_line = f.read().splitlines()[-1]
     return json.loads(last_line)["entry_hash"]
+
+
+def unanchored_entries() -> list[str]:
+    """Every chain entry from ANCHORING_START onward that has no .ots proof,
+    in chain order (oldest first).
+
+    Previously this script anchored only the NEWEST entry. Any night that
+    chained more than one entry therefore left the earlier ones permanently
+    unanchored -- the newest got a proof, everything behind it was skipped
+    and never revisited. Confirmed on the live chain 2026-08-02: the
+    2026-07-29 METHODOLOGY_CHANGE and both AUDIT_RESULT entries have no
+    proof, and the AUDIT_RESULT case would have recurred every single night
+    now that self_audit chains before the brief.
+
+    Entries before ANCHORING_START are intentionally skipped: the README
+    states they predate anchoring and are covered by the hash chain alone.
+    Anchoring them now would only prove they existed as of tonight, which
+    the chain already establishes more strongly.
+    """
+    out = []
+    with CHAIN_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = e.get("published_at_utc", "")
+            if ts[:10] < ANCHORING_START:
+                continue
+            h = e.get("entry_hash")
+            if h and not (OTS_DIR / f"{h}.hash.ots").exists():
+                out.append(h)
+    return out
 
 
 def ssl_cert_env() -> dict:
@@ -151,19 +198,43 @@ def main() -> int:
         # cannot possibly be confirmed yet.
         opportunistic_upgrade(ots_bin)
 
-        entry_hash = last_entry_hash()
-        hash_file = OTS_DIR / f"{entry_hash}.hash"
-        ots_file = OTS_DIR / f"{entry_hash}.hash.ots"
+        # Stamp EVERY unanchored entry, oldest first -- not just the newest.
+        # See unanchored_entries() for why the old newest-only behaviour left
+        # entries permanently without a proof.
+        pending = unanchored_entries()
+        if not pending:
+            log("all entries since anchoring start already have a proof")
+            return 0
 
-        if ots_file.exists():
-            log(f"entry {entry_hash[:16]}… already anchored -- skipping")
-        else:
+        log(f"{len(pending)} entry(s) without a proof -- stamping oldest first")
+        start = time.monotonic()
+        consecutive_failures = 0
+        stamped = 0
+        for entry_hash in pending:
+            if time.monotonic() - start > STAMP_TOTAL_BUDGET_S:
+                log(f"stamp sweep hit {STAMP_TOTAL_BUDGET_S}s budget -- "
+                    f"{len(pending) - stamped} still unanchored, retried next run")
+                break
+            if consecutive_failures >= STAMP_MAX_CONSECUTIVE_FAILURES:
+                log(f"{consecutive_failures} consecutive stamp failures "
+                    f"(calendars likely unreachable) -- stopping for tonight, "
+                    f"{len(pending) - stamped} still unanchored")
+                break
+
+            hash_file = OTS_DIR / f"{entry_hash}.hash"
             hash_file.write_text(entry_hash)
             if stamp(ots_bin, hash_file):
                 log(f"stamped entry {entry_hash[:16]}… (pending Bitcoin confirmation)")
+                stamped += 1
+                consecutive_failures = 0
             else:
+                # Never leave a .hash without a .ots -- that combination is
+                # the crash-mid-stamp signature self_audit check 3 flags, and
+                # nothing else ever cleans it up.
                 hash_file.unlink(missing_ok=True)
+                consecutive_failures += 1
 
+        log(f"stamp sweep done: {stamped}/{len(pending)} newly anchored")
         return 0
     except Exception as exc:
         # Anchoring must never break the nightly run -- log and move on.
