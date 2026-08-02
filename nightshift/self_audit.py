@@ -271,7 +271,14 @@ def check_ots_proof_coverage(entries: list[dict]) -> dict:
             finding["detail"]["orphan_hash_no_ots"].append(h)
         elif hash_file.exists() and ots_file.exists() and ots_bin:
             confirmed = _ots_confirmed(ots_bin, ots_file)
-            if confirmed is False and age_hours > OTS_GRACE_HOURS:
+            # Grace runs from when the PROOF was stamped, not when the entry
+            # was published. A backfilled proof on an old entry is stamped
+            # today and cannot possibly be confirmed yet; measuring from
+            # publication would flag all six of them the instant the
+            # 2026-08-02 backlog sweep completed, which says nothing about
+            # whether anything is wrong.
+            proof_age_h = (now.timestamp() - ots_file.stat().st_mtime) / 3600
+            if confirmed is False and proof_age_h > OTS_GRACE_HOURS:
                 finding["detail"]["pending_past_grace"].append(h)
         elif not hash_file.exists() and age_hours > OTS_GRACE_HOURS:
             finding["detail"]["missing_entirely"].append(h)

@@ -218,18 +218,43 @@ unchanged as of this commit.
 - The record is weeks old, not years. Any track record this short is
   statistically weak. That is the point of publishing it from day one
   rather than after it looks good.
-- The meta-model is in fallback mode, and cannot leave it as the code
-  currently stands. It requires 30 distinct settle dates with a labeled
-  outcome before it trains on real data, not 30 labeled rows — several
-  configs stamped the same night are correlated (same market data, same
-  regime) and carry roughly one night's worth of independent evidence
-  between them, not one row's worth each. It does not have 30 yet, and
-  more nights alone will not get it there: the live-monitoring step that
-  would assign those labels (`LiveMonitor.register()`) has never been
-  called from the pipeline, so zero real rows have ever been labeled.
-  See "Known defect — live monitoring never runs" above and the
-  2026-08-01 METHODOLOGY_CHANGE chain entry. Until this is fixed, ranking
-  is a heuristic (GT-Score), not a learned model, and the repo says so.
+- The meta-model is in fallback mode. It requires 30 distinct settle dates
+  with a labeled outcome before it trains on real data, not 30 labeled
+  rows — several configs stamped the same night are correlated (same
+  market data, same regime) and carry roughly one night's worth of
+  independent evidence between them, not one row's worth each. As of
+  2026-08-02 it has zero, and ranking is a heuristic (GT-Score), not a
+  learned model.
+
+  **Graduating it would change very little, and this repo previously
+  implied otherwise.** Since multi-config stamping began on 2026-07-30,
+  *every* config that clears Monte Carlo gating is stamped and graded —
+  not just the top-ranked one. The meta-model's ranking therefore decides
+  which three configs are displayed in the nightly brief, and nothing
+  else. It does not decide what is stamped, what is graded, what is
+  chained, or what is published. Earlier versions of this file described
+  meta-model graduation as the system's main blocker; that was true when
+  one config per night was stamped and ranking selected it, and it stopped
+  being true when multi-config stamping landed. The roadmap was not
+  updated at the time. It is now.
+
+  How long graduation would take, measured rather than estimated: over
+  2026-07-24 to 2026-08-02, 55 configs cleared all five MC gates and 12
+  had a live entry signal (21.8%). Three of eight nights produced at least
+  one gradeable (`long`) prediction. Since graduation counts distinct
+  settle dates, stamping more configs per night cannot accelerate it —
+  only the share of *nights* with at least one firing signal matters. At
+  the observed rate that is roughly 79 productive nights, about three
+  months, and two of those three gradeable nights were later voided.
+
+- The previous entry in this list claimed the meta-model "cannot leave
+  fallback as the code currently stands," because `LiveMonitor.register()`
+  was never called. That specific blocker no longer applies: as of
+  2026-08-02 the meta-model trains on WIN/LOSS outcomes from
+  `reports/predictions.jsonl` rather than on a decay ratio derived from
+  live monitoring, so `LiveMonitor` is not on the path at all. See the
+  2026-08-02 METHODOLOGY_CHANGE chain entry. `LiveMonitor` remains
+  unwired and is now vestigial rather than blocking.
 - The WFO "out-of-sample" Sharpe/GT-Score/max-drawdown figures are not
   currently genuine holdout results — parameter selection uses the same
   data later scored as OOS, so `MIN_OOS_SHARPE` gating and every reported
@@ -242,6 +267,14 @@ unchanged as of this commit.
 - Roughly half of all asset-nights produce no config that clears Monte
   Carlo gating. That is the gating doing its job, not a malfunction — but
   it's also why the record accumulates slowly.
+- Separately, and more limiting: of the configs that *do* clear gating,
+  only 21.8% had a live entry signal on the night they were stamped (12 of
+  55, 2026-07-24 to 2026-08-02). A config can pass every gate and still
+  emit `none` because its entry condition — an RSI band, a z-score
+  threshold — simply is not true that day. That is correct behaviour, not
+  a defect, but it means the gates are not what limits how fast the record
+  accumulates gradeable outcomes. Loosening them would add configs that
+  mostly still would not fire.
 - Long-only. No shorting, in any market condition.
 - One laptop, one person. No redundancy. Missed nights have happened and are
   published as PIPELINE_FAILURE entries.
