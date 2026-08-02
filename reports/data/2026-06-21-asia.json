@@ -1,0 +1,53 @@
+{
+  "date": "2026-06-21",
+  "markets": [
+    {
+      "ticker": "TSM",
+      "description": "TSMC - Taiwan chips - predicts US semiconductors",
+      "move_percent": 5.3,
+      "direction": "UP",
+      "size": "BIG",
+      "us_prediction": "TSMC up 2%+ usually means US semis (NVDA, AMD, INTC) open strong",
+      "date": "2026-06-21"
+    },
+    {
+      "ticker": "005930.KS",
+      "description": "Samsung - Korea chips - predicts US tech",
+      "move_percent": -4.97,
+      "direction": "DOWN",
+      "size": "BIG",
+      "us_prediction": "Samsung down 2%+ adds pressure to US chip stocks",
+      "date": "2026-06-21"
+    },
+    {
+      "ticker": "^N225",
+      "description": "Nikkei - Japan overall - predicts US market mood",
+      "move_percent": -0.42,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-21"
+    },
+    {
+      "ticker": "^HSI",
+      "description": "Hang Seng - Hong Kong - predicts risk appetite",
+      "move_percent": -0.91,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-21"
+    },
+    {
+      "ticker": "^BSESN",
+      "description": "Sensex - India - our home market",
+      "move_percent": -0.07,
+      "direction": "DOWN",
+      "size": "SMALL",
+      "us_prediction": null,
+      "date": "2026-06-21"
+    }
+  ],
+  "overall_mood": "RISK OFF - Most Asian markets down. US likely opens cautious.",
+  "ups": 1,
+  "downs": 4
+}
