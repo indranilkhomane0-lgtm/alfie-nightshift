@@ -10,7 +10,8 @@ from sklearn.model_selection import cross_val_score
 from nightshift.config import (META_MIN_SAMPLES, META_SURVIVE_THRESHOLD,
     META_LIVE_WINDOW, META_RETRAIN_EVERY, META_N_ESTIMATORS,
     META_MAX_DEPTH, META_LEARNING_RATE, META_SEED, ROOT)
-from nightshift.db import get_labelled_corpus, corpus_size, regime_corpus_size, labeled_date_count
+from nightshift.db import (get_labelled_corpus, corpus_size, regime_corpus_size,
+    labeled_date_count, get_prediction_labeled_corpus, labeled_prediction_date_count)
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -47,25 +48,42 @@ class MetaModel:
         return Pipeline([("scaler", StandardScaler()), ("model", est)])
 
     def _df(self):
+        """Training frame from the graded prediction record.
+
+        Targets changed 2026-08-02 (see db.get_prediction_labeled_corpus):
+          survived    -> outcome_win        (WIN=1 / LOSS=0, real closes)
+          decay_ratio -> outcome_return_pct (realised 7-day return)
+        Both come from label_outcomes.py's fixed-in-advance rule and depend
+        on no WFO metric. The previous targets both divided by wfo_sharpe,
+        which is the disclosed-inflated sharpe_oos.
+        """
         import pandas as pd
-        rows = get_labelled_corpus()
+        rows = get_prediction_labeled_corpus()
         if not rows: return pd.DataFrame()
-        df = pd.DataFrame(rows).dropna(subset=FEATURE_COLS+["survived","decay_ratio"])
+        df = pd.DataFrame(rows).dropna(
+            subset=FEATURE_COLS+["outcome_win","outcome_return_pct"])
         return df
 
     def train(self, force=False):
         import pandas as pd
-        n_dates = labeled_date_count()
+        n_dates = labeled_prediction_date_count()
         if n_dates < META_MIN_SAMPLES and not force:
-            log.info("Corpus %d/%d distinct labeled dates — meta-model standby",
+            log.info("Record %d/%d distinct settled dates — meta-model standby",
                       n_dates, META_MIN_SAMPLES)
             return False
         df = self._df()
-        if (df.empty or df["outcome_date"].nunique() < META_MIN_SAMPLES) and not force:
+        if (df.empty or df["outcome_settle_date"].nunique() < META_MIN_SAMPLES) and not force:
+            return False
+        if df["outcome_win"].nunique() < 2 and not force:
+            # Every settled prediction so far went the same way. A
+            # classifier cannot learn from a single class, and fitting one
+            # anyway would produce a model that "predicts" perfectly and
+            # means nothing.
+            log.info("All %d labeled rows share one outcome class — standby", len(df))
             return False
         X     = df[FEATURE_COLS].values.astype(float)
-        y_clf = df["survived"].values.astype(int)
-        y_reg = df["decay_ratio"].values.astype(float)
+        y_clf = df["outcome_win"].values.astype(int)
+        y_reg = df["outcome_return_pct"].values.astype(float)
         msl   = max(2, len(df)//50)
         clf = GradientBoostingClassifier(n_estimators=META_N_ESTIMATORS,
             max_depth=META_MAX_DEPTH, learning_rate=META_LEARNING_RATE,

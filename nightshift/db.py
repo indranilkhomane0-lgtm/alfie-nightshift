@@ -89,6 +89,82 @@ def update_live_outcome(config_id, deployment_date, live_sharpe,
                         "dr":decay_ratio,"sv":int(survived),"note":note,
                         "today":str(date.today()),"cid":config_id,"dep":deployment_date})
 
+PREDICTIONS_PATH = DB_PATH.parent.parent / "reports" / "predictions.jsonl"
+
+
+def _load_predictions():
+    """Graded predictions keyed by (config_id, cycle_date). Never raises --
+    a malformed or missing file yields an empty dict so the caller falls
+    back to 'no labels yet' rather than crashing the cycle."""
+    out = {}
+    try:
+        with open(PREDICTIONS_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    p = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if p.get("outcome") in ("WIN", "LOSS"):
+                    out[(p.get("config_id"), p.get("cycle_date"))] = p
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def get_prediction_labeled_corpus():
+    """Training rows: corpus features joined to the OUTCOME the record
+    already grades honestly.
+
+    Why not the `survived` column: survived = (live_sharpe / wfo_sharpe) >=
+    threshold, and wfo_sharpe is sharpe_oos -- the metric the 2026-08-01
+    METHODOLOGY_CHANGE disclosed as in-sample-influenced. Training a model
+    to predict 'did forward performance reach half of a number we've
+    published as inflated' teaches it the wrong target. It also required
+    LiveMonitor to persist state across nights, which it never did (the
+    _active dict lives in a process that exits after minutes).
+
+    WIN/LOSS comes from label_outcomes.py: graded against real Binance
+    closes by a rule fixed in advance and never changed retroactively, and
+    chained. It depends on no WFO metric. NO_CALL rows are excluded here
+    for the same reason they're excluded everywhere -- the system never
+    made a call, so there is nothing to learn from.
+
+    Joined on (config_id, cycle_date) rather than config_id alone: see the
+    content-hash note in wfo_engine.py. Historic rows written before that
+    change carry positional ids that were reused across nights with
+    different params, so a config_id-only join would silently mix distinct
+    strategies into one training example.
+    """
+    preds = _load_predictions()
+    if not preds:
+        return []
+    rows = []
+    with get_conn() as c:
+        for r in c.execute("SELECT * FROM corpus WHERE void_reason IS NULL"):
+            d = dict(r)
+            p = preds.get((d["config_id"], d["deployment_date"]))
+            if not p:
+                continue
+            d["outcome_win"] = 1 if p["outcome"] == "WIN" else 0
+            d["outcome_return_pct"] = float(p.get("return_pct") or 0.0)
+            d["outcome_settle_date"] = p.get("settle_date")
+            rows.append(d)
+    rows.sort(key=lambda x: x["outcome_settle_date"] or "")
+    return rows
+
+
+def labeled_prediction_date_count():
+    """Distinct settle dates carrying >=1 WIN/LOSS. Configs settling the
+    same day share market data and carry roughly one day's worth of
+    independent evidence between them, not one row's worth each -- same
+    reasoning as labeled_date_count()."""
+    return len({p.get("settle_date") for p in _load_predictions().values()
+                if p.get("settle_date")})
+
+
 def get_labelled_corpus():
     with get_conn() as c:
         return [dict(r) for r in c.execute(

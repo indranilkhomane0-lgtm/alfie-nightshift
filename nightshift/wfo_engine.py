@@ -1,4 +1,4 @@
-import logging, warnings
+import hashlib, json, logging, warnings
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
@@ -12,6 +12,26 @@ warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
 ANN    = np.sqrt(252)
 WARMUP = 300   # bars prepended to test slice so indicators can warm up
+
+def _config_id(asset, family, params):
+    """Content-addressed config id: the same (asset, family, params) always
+    yields the same id, and different params never collide.
+
+    The previous scheme was f"{asset}_{family}_{idx:04d}", where idx was the
+    row's position in that night's results list -- positional, not
+    identifying. Measured 2026-08-02: 29 config_ids appeared on more than one
+    date and 28 of those carried DIFFERENT parameters. Anything reasoning
+    about a config across nights (decay tracking, joining features to graded
+    outcomes, LiveMonitor.register()) was silently comparing unrelated
+    strategies that happened to land in the same list slot.
+
+    Historic rows keep their positional ids -- nothing is rewritten. Joins
+    must still be date-scoped to stay correct across the boundary.
+    """
+    canon = json.dumps({"asset": asset, "family": family, "params": params},
+                       sort_keys=True, separators=(",", ":"))
+    return f"{asset}_{family}_{hashlib.sha256(canon.encode()).hexdigest()[:12]}"
+
 
 def sharpe(r):
     if len(r) < 5 or r.std() == 0: return -999.0
@@ -141,7 +161,7 @@ class WFOEngine:
             if sh < MIN_OOS_SHARPE: continue
             fs  = d["fgt"]
             results.append(WFOResult(
-                config_id       = f"{asset}_{self.family}_{idx:04d}",
+                config_id       = _config_id(asset, self.family, d["params"]),
                 asset=asset, strategy_family=self.family, params=d["params"],
                 gt_score_oos=gt_score(oos), sharpe_oos=sh,
                 sortino_oos=sortino(oos), calmar_oos=calmar(oos),
