@@ -63,8 +63,15 @@ echo "=== $(date -u) start (dry=$DRY) ===" >> "$LOG"
 # commit machinery at the end of this script.
 if [ $DRY -eq 0 ]; then
   "$PY" nightshift/self_audit.py >> "$LOG" 2>&1 || true
-  if ! git diff --quiet reports/chain.jsonl 2>/dev/null || [ -n "$(git status --porcelain reports/audit/ 2>/dev/null)" ]; then
-    git add reports/chain.jsonl reports/audit/ >> "$LOG" 2>&1
+  # Anchor the AUDIT_RESULT immediately. anchor_ots.py only stamps the
+  # NEWEST chain entry, so if we wait until after tonight's brief is
+  # chained, the audit entry is no longer newest and never gets a proof --
+  # one permanently orphaned entry per night, forever. Both AUDIT_RESULTs
+  # written before this line was added (2026-08-01, 2026-08-02) have no
+  # .hash and no .ots for exactly that reason.
+  "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
+  if ! git diff --quiet reports/chain.jsonl 2>/dev/null || [ -n "$(git status --porcelain reports/audit/ reports/ots/ 2>/dev/null)" ]; then
+    git add reports/chain.jsonl reports/audit/ reports/ots/ >> "$LOG" 2>&1
     git commit -m "Night Shift self-audit $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
     git push >> "$LOG" 2>&1 || echo "audit push failed -- will ride along with a later push" >> "$LOG"
   fi

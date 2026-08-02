@@ -142,7 +142,16 @@ def check_calendar_coverage(entries: list[dict]) -> dict:
         finding["status"] = "SKIP"
         finding["detail"]["reason"] = "chain is empty"
         return finding
-    dates = {d for d in (_entry_date(e) for e in entries) if d}
+    # AUDIT_RESULT entries do NOT count as coverage. self_audit runs first,
+    # before every guard in run_and_publish.sh, and chains an entry whether
+    # or not anything else succeeds -- so counting them would make this
+    # check a tautology ("did the auditor run? yes, because it ran") and it
+    # could never fail again. Observed on 2026-08-02: AUDIT_RESULT chained
+    # at 00:00:10, then the network died and the cycle produced nothing.
+    # Coverage must mean the PIPELINE emitted something -- a brief, or a
+    # PIPELINE_FAILURE saying honestly that it couldn't.
+    dates = {d for d in (_entry_date(e) for e in entries
+                         if e.get("payload", {}).get("type") != "AUDIT_RESULT") if d}
     start = date.fromisoformat(min(dates))
     # Walk to YESTERDAY, not today. self_audit runs at the top of
     # run_and_publish.sh -- before tonight's brief is chained -- so that it
