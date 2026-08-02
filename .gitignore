@@ -17,3 +17,11 @@ nightshift/logs/*.log
 nightshift/corpus.db
 nightshift/meta_model.pkl
 nightshift/.run.lock/
+
+# local safety-net copies -- redundant with git history, and if they show
+# up as untracked they make status.py report "uncommitted changes" on every
+# single run, which trains you to ignore a line that should mean something.
+*.backup
+*.bak[0-9]
+*.bak-*
+*.pre-*-bak
