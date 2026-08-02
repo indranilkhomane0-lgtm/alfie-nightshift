@@ -27,7 +27,7 @@ explicit void_reason rather than being deleted.
 
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,11 +35,29 @@ PRED_PATH = ROOT / "reports" / "predictions.jsonl"
 
 
 def fetch_settle_close(asset: str, settle_date: str):
-    """Daily close for settle_date from Binance (same source as entry)."""
+    """FINAL daily close for settle_date from Binance (same source as entry).
+
+    Binance returns the IN-PROGRESS daily candle for the current UTC day,
+    whose "close" is just the last trade so far. Accepting that would grade a
+    prediction against a partial-day price while calling it the close.
+    Measured 2026-08-02 10:23 UTC: asking for that same day returned 63172.0
+    — a mid-day price, not a close.
+
+    That mattered concretely: the nightly run fires at 00:00 UTC, and the
+    due-check used settle_date <= today, so a prediction settling today would
+    have been graded roughly five seconds into its own settle day — i.e.
+    against that day's OPEN — and chained permanently as a WIN or LOSS.
+
+    A daily bar is only final once the next UTC day has begun. Return None
+    until then; the caller leaves the prediction OPEN and retries tomorrow.
+    """
     import ccxt
+    bar_start = (datetime.strptime(settle_date, "%Y-%m-%d")
+                 .replace(tzinfo=timezone.utc))
+    if datetime.now(timezone.utc) < bar_start + timedelta(days=1):
+        return None  # settle day still in progress — no final close exists yet
     ex = ccxt.binance({"enableRateLimit": True})
-    since = int(datetime.strptime(settle_date, "%Y-%m-%d")
-                .replace(tzinfo=timezone.utc).timestamp() * 1000)
+    since = int(bar_start.timestamp() * 1000)
     bars = ex.fetch_ohlcv(asset, "1d", since=since, limit=3)
     for ts, o, h, l, c, v in bars:
         d = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date().isoformat()
@@ -64,9 +82,14 @@ def main() -> int:
         return 0
 
     rows = [json.loads(l) for l in PRED_PATH.read_text().splitlines() if l.strip()]
-    today = date.today().isoformat()
+    # STRICTLY before today, not <=. A settle_date equal to today has not
+    # finished, so its daily close does not exist yet -- see the note in
+    # fetch_settle_close(). Grading is therefore due the day AFTER the settle
+    # date. fetch_settle_close() enforces the same rule independently, so a
+    # mistake in either place cannot produce a partial-day grade on its own.
+    today = datetime.now(timezone.utc).date().isoformat()
     due = [r for r in rows
-           if r.get("status") == "OPEN" and r.get("settle_date", "9999") <= today]
+           if r.get("status") == "OPEN" and r.get("settle_date", "9999") < today]
 
     if not due:
         open_n = sum(1 for r in rows if r.get("status") == "OPEN")

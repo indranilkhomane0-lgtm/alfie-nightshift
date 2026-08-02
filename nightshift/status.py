@@ -47,9 +47,20 @@ def main():
     preds = []
     if PREDS.exists():
         preds = [json.loads(l) for l in PREDS.open() if l.strip()]
-    outcomes = Counter(p.get("outcome") or "OPEN" for p in preds)
+    # Count on the status field, not on "has no outcome yet". VOID
+    # predictions have no outcome and never will -- treating them as open
+    # overstated the live pipeline 3x (54 reported vs 17 real, 2026-08-02).
+    outcomes = Counter(p.get("outcome") or p.get("status") or "OPEN" for p in preds)
     settled_dates = {p.get("settle_date") for p in preds
                      if p.get("outcome") in ("WIN", "LOSS")}
+    # Only long/short predictions can ever become WIN or LOSS. A 'none'
+    # prediction grades NO_CALL and is excluded from the corpus, so it moves
+    # metric 2 not at all. This is the real pipeline toward graduation.
+    gradeable = [p for p in preds
+                 if p.get("status") == "OPEN"
+                 and p.get("direction") in ("long", "short")]
+    open_n = sum(1 for p in preds if p.get("status") == "OPEN")
+    void_n = sum(1 for p in preds if p.get("status") == "VOID")
 
     # 1. chain length
     print(f"1. chain length ............... {len(entries)} entries")
@@ -57,7 +68,15 @@ def main():
     # 2. labeled outcome rows -> meta-model graduation
     print(f"2. labeled settle dates ....... {len(settled_dates)} of 30"
           f"   (WIN {outcomes.get('WIN',0)} / LOSS {outcomes.get('LOSS',0)}"
-          f" / NO_CALL {outcomes.get('NO_CALL',0)} / open {outcomes.get('OPEN',0)})")
+          f" / NO_CALL {outcomes.get('NO_CALL',0)})")
+    print(f"   gradeable in flight ........ {len(gradeable)}"
+          f"   <- only long/short can ever become WIN/LOSS")
+    print(f"   open {open_n} ({open_n - len(gradeable)} are direction=none -> NO_CALL)"
+          f", void {void_n}")
+    if gradeable:
+        nxt = min(gradeable, key=lambda p: p.get("settle_date", "9999"))
+        print(f"   next to grade .............. {nxt['prediction_id']}"
+              f"  settles {nxt['settle_date']} (graded the day after)")
 
     # 3. regimes survived with losses published
     print(f"3. losses published ........... {outcomes.get('LOSS',0)}")
