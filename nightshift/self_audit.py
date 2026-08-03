@@ -34,9 +34,12 @@ WHAT THIS CANNOT CATCH — read this before trusting a green result:
     - A calendar gap (check 1) says a night is missing, not why. Crash,
       operator absence, and a correctly-triggered network guard all look
       identical to this check.
-    - Scope is nightshift/ only. None of these six checks would catch a
-      stale claim living outside this directory (docs/, a README, the
-      launchd plists, run_and_publish.sh itself).
+    - Scope is nightshift/ only, except check 4 (dead-code reachability),
+      which also scans core/ since verify_chain.py moved there (see
+      AST_SCAN_DIRS). The other five checks remain nightshift/-scoped.
+      None of the six would catch a stale claim living outside
+      nightshift/ and core/ (docs/, a README, the launchd plists,
+      run_and_publish.sh itself).
     - No external ground truth. This checks internal consistency (does
       the code call the code, does the config match the registry) — it
       cannot tell you if a fetched price or a computed Sharpe is right.
@@ -79,14 +82,19 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # design, not a defect. Keep this in sync with run_and_publish.sh and
 # the launchd/*.plist files.
 # verify_chain.py: canonical implementation now lives at
-# core/verify_chain.py, outside this scan's scope (nightshift/ only).
-# The name below matches nightshift/verify_chain.py, the backward-compat
-# shim that forwards to it -- keep listed as long as the shim exists.
+# core/verify_chain.py, in scan scope via AST_SCAN_DIRS below. The name
+# below matches both core/verify_chain.py and the nightshift/verify_chain.py
+# backward-compat shim (filename-only matching) -- keep listed as long as
+# either exists.
 ENTRY_POINT_SCRIPTS = {
     "cycle.py", "label_outcomes.py", "void_predictions.py", "watchdog.py",
     "anchor_ots.py", "verify_chain.py", "publish_chain.py",
     "stamp_prediction.py", "self_audit.py",
 }
+# check_dead_code's source scope: directories that are part of the
+# audited pipeline. core/ holds verify_chain.py, canonical since it moved
+# out of nightshift/ (nightshift/verify_chain.py is now a compat shim).
+AST_SCAN_DIRS = (NIGHTSHIFT_DIR, ROOT / "core")
 AST_SCAN_EXCLUDE_DIRS = {"logs", "briefs", "__pycache__"}
 
 OTS_ANCHORING_START = date(2026, 7, 28)  # before this, no proof is expected
@@ -356,7 +364,7 @@ def check_dead_code(root_name: str = "run") -> dict:
     graph via AST name matching, (b) every ENTRY_POINT_SCRIPTS module's
     own top-level calls, since those are invoked directly as separate
     processes and are legitimately unreachable from cycle.py by design.
-    Anything defined in nightshift/ and reachable from neither is
+    Anything defined in nightshift/ or core/ and reachable from neither is
     flagged. @property and dunder methods are exempted -- attribute
     access doesn't show up as an ast.Call node, so this check cannot see
     them either way and would otherwise false-positive on every one."""
@@ -371,7 +379,7 @@ def check_dead_code(root_name: str = "run") -> dict:
     all_defs: dict[str, dict] = {}
     per_file_defs: dict[str, _DefCollector] = {}
 
-    py_files = [p for p in NIGHTSHIFT_DIR.rglob("*.py")
+    py_files = [p for d in AST_SCAN_DIRS for p in d.rglob("*.py")
                 if not any(part in AST_SCAN_EXCLUDE_DIRS for part in p.parts)]
     for path in py_files:
         try:
