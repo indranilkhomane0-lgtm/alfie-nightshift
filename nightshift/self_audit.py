@@ -78,6 +78,10 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # Legitimately unreachable from NightShiftCycle.run()'s call graph by
 # design, not a defect. Keep this in sync with run_and_publish.sh and
 # the launchd/*.plist files.
+# verify_chain.py: canonical implementation now lives at
+# core/verify_chain.py, outside this scan's scope (nightshift/ only).
+# The name below matches nightshift/verify_chain.py, the backward-compat
+# shim that forwards to it -- keep listed as long as the shim exists.
 ENTRY_POINT_SCRIPTS = {
     "cycle.py", "label_outcomes.py", "void_predictions.py", "watchdog.py",
     "anchor_ots.py", "verify_chain.py", "publish_chain.py",

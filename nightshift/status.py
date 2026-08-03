@@ -139,7 +139,8 @@ def main():
             pass
 
     print()
-    print("   verify: python3 nightshift/verify_chain.py")
+    print("   verify: python3 core/verify_chain.py")
+    print("           (nightshift/verify_chain.py still works -- forwards here)")
     return 0
 
 

@@ -11,7 +11,10 @@ with one command and no dependencies.
 
     git clone https://github.com/indranilkhomane0-lgtm/alfie-nightshift
     cd alfie-nightshift
-    python3 nightshift/verify_chain.py
+    python3 core/verify_chain.py
+
+(`python3 nightshift/verify_chain.py` still works -- it forwards to the
+path above.)
 
 This recomputes every hash from genesis using Python's standard library only.
 If any historical entry was edited, deleted, or reordered, it fails at that
@@ -314,7 +317,7 @@ code, since the live-monitoring step that would label them is never
 invoked (see "Known defect — live monitoring never runs" above).
 
 Entry counts, open predictions, and labeled outcomes change every night —
-run `python3 nightshift/verify_chain.py` for the live numbers rather than
+run `python3 core/verify_chain.py` for the live numbers rather than
 trusting a count written here.
 
 ## Layout
@@ -323,7 +326,7 @@ trusting a count written here.
     nightshift/stamp_prediction.py  writes the gradeable claim
     nightshift/label_outcomes.py    grades it 7 days later
     nightshift/publish_chain.py     appends to the hash chain
-    nightshift/verify_chain.py      recomputes it from genesis
+    core/verify_chain.py            recomputes it from genesis (nightshift/verify_chain.py is a compat shim that forwards here)
     nightshift/anchor_ots.py        timestamps entry hashes to Bitcoin
     reports/chain.jsonl             the record
     reports/predictions.jsonl       open and settled predictions
@@ -333,4 +336,4 @@ trusting a count written here.
 
     python3 run_nightshift.py             # full cycle, live Binance data
     python3 nightshift/label_outcomes.py  # grade anything that has settled
-    python3 nightshift/verify_chain.py    # check the chain
+    python3 core/verify_chain.py          # check the chain
