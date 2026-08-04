@@ -111,6 +111,8 @@ def stamp(cfg: dict, closes) -> dict:
         "settle_date": (entry + timedelta(days=HOLD_DAYS)).isoformat(),
         "wfo_win_rate": cfg.get("wfo_win_rate"),
         "regime_state": cfg.get("regime_state"),
+        "wfo_n_trials": cfg.get("wfo_n_trials"),
+        "wfo_n_candidates_surviving_min_sharpe": cfg.get("wfo_n_candidates_surviving_min_sharpe"),
         "status": "OPEN",
     }
     PRED_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -96,11 +96,18 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
         lines.append("  No configs passed all gates tonight.")
     for i,(cfg,ms) in enumerate(zip(top_configs,meta_scores),1):
         mc = cfg.mc_results
+        # param_stability is the 999.0 sentinel whenever fold_sharpes has
+        # under 2 observations (nightshift/wfo_engine.py) -- non-overlapping
+        # folds mean most configs recur in only one fold now, so most
+        # briefs would otherwise print the literal sentinel as if it were
+        # a real number.
+        stability_str = (f"{cfg.param_stability:.3f}"
+                          if len(cfg.fold_sharpes) >= 2 else "n/a")
         lines += ["",
             f"  [{i}] {cfg.config_id}",
             f"      WFO  Sharpe={cfg.sharpe_oos:.2f}  Sortino={cfg.sortino_oos:.2f}"
             f"  MaxDD={cfg.max_dd_oos:.1%}",
-            f"      GT={cfg.gt_score_oos:.3f}  stability_σ={cfg.param_stability:.3f}",
+            f"      GT={cfg.gt_score_oos:.3f}  stability_σ={stability_str}",
             f"      MC   G1={mc.get('gate1_p10',0):.2f}"
             f" G2={mc.get('gate2_p10',0):.2f}"
             f" G3={mc.get('gate3_p10',0):.2f}"
@@ -224,6 +231,8 @@ class NightShiftCycle:
                 "wfo_calmar":res.calmar_oos,"wfo_max_dd":res.max_dd_oos,
                 "wfo_win_rate":res.win_rate_oos,"wfo_gt_score":res.gt_score_oos,
                 "wfo_n_trades":res.n_trades,
+                "wfo_n_trials":res.n_trials_total,
+                "wfo_n_candidates_surviving_min_sharpe":res.n_candidates_surviving_min_sharpe,
                 "mc_gate1_p10":mc.get("gate1_p10",0),"mc_gate2_p10":mc.get("gate2_p10",0),
                 "mc_gate3_p10":mc.get("gate3_p10",0),"mc_gate4_p10":mc.get("gate4_p10",0),
                 "mc_gate5_sensitivity":mc.get("gate5_sensitivity",0),

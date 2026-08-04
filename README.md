@@ -200,41 +200,69 @@ This is disclosed on the chain as a METHODOLOGY_CHANGE entry published
 2026-08-01. It is a disclosure, not yet a fix — `register()` is still
 unwired as of this commit.
 
-### Known defect — WFO metrics are not genuinely out-of-sample
+### Fixed defect — WFO metrics were not genuinely out-of-sample (2026-06-18 to 2026-08-04)
 
-`WFOEngine.optimise()` (nightshift/wfo_engine.py) sets `train_all = prices`
-(line 89) — the full ~500-day price series for the asset, not a slice held
-out from any fold. The Optuna objective (lines 92-98) scores every
-candidate parameter set by running it against that full series, and
-`top_params` (lines 104-113) is selected purely by that full-history
-score. Only afterward are the already-chosen parameter sets re-evaluated
-on windowed fold slices drawn from the same series (lines 119-133), and
-those returns are the ones labeled OOS and used for `sharpe_oos`,
+From the system's initial commit, 607da1f (2026-06-18), through
+2026-08-04, `WFOEngine.optimise()` (nightshift/wfo_engine.py) set
+`train_all = prices` — the full ~500-day price series for the asset, not
+a slice held out from any fold. The Optuna objective scored every
+candidate parameter set by running it against that full series in one
+global study, and the winning parameters were selected purely by that
+full-history score. Only afterward were the already-chosen parameter sets
+re-evaluated on windowed fold slices drawn from the same series, and
+those returns were the ones labeled OOS and used for `sharpe_oos`,
 `gt_score_oos`, `max_dd_oos`, `sortino_oos`, `calmar_oos`, and
-`win_rate_oos` (lines 136-151).
+`win_rate_oos`.
 
 Because parameter selection already used performance on the very days
 later scored as "out-of-sample," those days were never actually held
-out, and `MIN_OOS_SHARPE` (the gate at line 141) has been filtering on
-an inflated metric rather than a genuine holdout Sharpe. Every
-`sharpe_oos`, `gt_score_oos`, and `max_dd_oos` figure printed in a
-brief or written to a corpus row, for every night this system has run,
-should be read as in-sample-influenced, not as a true holdout result.
+out, and `MIN_OOS_SHARPE` filtered on an inflated metric rather than a
+genuine holdout Sharpe. Every `sharpe_oos`, `gt_score_oos`, and
+`max_dd_oos` figure printed in a brief or written to a corpus row, for
+every night this system ran between 2026-06-18 and 2026-08-04, should be
+read as in-sample-influenced, not as a true holdout result.
 
-This does **not** affect the integrity of the record itself. Predictions
-are still stamped before settlement with a fixed entry price and settle
+This did **not** affect the integrity of the record itself. Predictions
+were still stamped before settlement with a fixed entry price and settle
 date (nightshift/stamp_prediction.py), and graded afterward against real
 Binance closes by a rule fixed in advance and never changed retroactively
 (nightshift/label_outcomes.py). The WIN/LOSS/NO_CALL grading on the chain
-does not depend on `wfo_engine.py` and is unaffected. This is a defect in
-how candidate configs are scored and selected, not a tampering or
-grading-integrity issue.
+never depended on `wfo_engine.py` and was unaffected. This was a defect
+in how candidate configs were scored and selected, not a tampering or
+grading-integrity issue. It was disclosed on the chain as a
+METHODOLOGY_CHANGE entry published 2026-08-01, before the fix existed.
 
-The defect has existed since the system's initial commit, 607da1f
-(2026-06-18), and is present in every WFO run to date. This is disclosed
-on the chain as a METHODOLOGY_CHANGE entry published 2026-08-01. It is a
-disclosure, not yet a fix — the objective in `wfo_engine.py` is still
-unchanged as of this commit.
+**As of 2026-08-04, `WFOEngine.optimise()` is walk-forward for real.**
+Each fold now runs its own Optuna study, scored only on `prices` strictly
+before that fold's own test window (`train_end = ts - WFO_EMBARGO_DAYS`),
+with a 7-day embargo (`WFO_EMBARGO_DAYS`, matching the prediction hold
+period, `stamp_prediction.HOLD_DAYS`) so the training tail is never
+immediately adjacent to a window a live system would still consider
+unsettled. Folds no longer overlap (`WFO_STEP_DAYS` == `WFO_TEST_DAYS` ==
+28, down from a 14-day step) so a given calendar day belongs to exactly
+one fold's test window — the earlier, overlapping design covered the same
+unique OOS days but could pool a day shared by two adjacent folds into a
+parameter set's sample twice, inflating `sharpe_oos` and `n_trades`
+sample size without adding independent evidence. Verified empirically at
+the time of the fix, against the shipped `WFO_STEP_DAYS=28`: at
+`OHLCV_DAYS=500` this generates 11 folds, 10 of them usable after the
+embargo drops the first; poisoning a single fold's own held-out window
+never changed that fold's own selected parameters, checked across all 10.
+
+**What this fix does not yet address.** `OPTUNA_TRIALS` trials are split
+across folds and only the best candidate surviving `MIN_OOS_SHARPE` per
+run reaches the top-N list — so even a genuinely out-of-sample
+`sharpe_oos` is still a maximum over many tried configurations, which
+runs optimistic relative to a single blind trial. As of this fix, every
+`WFOResult` — and every corpus row and stamped prediction derived from
+one — now records `wfo_n_trials` and
+`wfo_n_candidates_surviving_min_sharpe` alongside the metrics themselves,
+so that multiplicity is visible in the record instead of hidden behind a
+single number. No deflated-Sharpe correction is applied yet; this is
+disclosure of the remaining bias, not a fix for it.
+
+A METHODOLOGY_CHANGE chain entry documenting this fix and its date is
+published separately.
 
 ## Honest limitations
 
@@ -280,15 +308,20 @@ unchanged as of this commit.
   live monitoring, so `LiveMonitor` is not on the path at all. See the
   2026-08-02 METHODOLOGY_CHANGE chain entry. `LiveMonitor` remains
   unwired and is now vestigial rather than blocking.
-- The WFO "out-of-sample" Sharpe/GT-Score/max-drawdown figures are not
-  currently genuine holdout results — parameter selection uses the same
-  data later scored as OOS, so `MIN_OOS_SHARPE` gating and every reported
-  WFO metric to date are in-sample-influenced. This does not affect
-  outcome grading (predictions are still stamped before settlement and
-  graded against real closes by a rule fixed in advance) — it affects
-  which configs get selected and how good they're reported to look. See
-  "Known defect — WFO metrics are not genuinely out-of-sample" above and
-  the 2026-08-01 METHODOLOGY_CHANGE chain entry.
+- The WFO "out-of-sample" Sharpe/GT-Score/max-drawdown figures were not
+  genuine holdout results from 2026-06-18 through 2026-08-04 — parameter
+  selection used the same data later scored as OOS. As of 2026-08-04,
+  `WFOEngine.optimise()` selects parameters per fold using only data
+  strictly before that fold's own test window, so this specific defect is
+  fixed; every WFO metric published before that date should still be read
+  as in-sample-influenced. A separate, smaller bias remains and is not
+  yet corrected for: the best of many trials is still an optimistic
+  estimate relative to one blind trial. `wfo_n_trials` and
+  `wfo_n_candidates_surviving_min_sharpe` are now recorded on each config
+  so that multiplicity is visible rather than hidden. See "Fixed defect —
+  WFO metrics were not genuinely out-of-sample" above; the fix is
+  disclosed there and will be chained as a METHODOLOGY_CHANGE entry
+  separately.
 - Roughly half of all asset-nights produce no config that clears Monte
   Carlo gating. That is the gating doing its job, not a malfunction — but
   it's also why the record accumulates slowly.

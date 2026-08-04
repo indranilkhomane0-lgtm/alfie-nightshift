@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import optuna
 from nightshift.config import (WFO_MIN_TRAIN_DAYS, WFO_TEST_DAYS, WFO_STEP_DAYS,
-    OPTUNA_TRIALS, MIN_OOS_SHARPE, GT_W_SHARPE, GT_W_SIG,
+    WFO_EMBARGO_DAYS, OPTUNA_TRIALS, MIN_OOS_SHARPE, GT_W_SHARPE, GT_W_SIG,
     GT_W_CONSISTENCY, GT_W_SORTINO, GT_W_CALMAR)
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -77,6 +77,8 @@ class WFOResult:
     calmar_oos: float; max_dd_oos: float; win_rate_oos: float
     n_trades: int; oos_returns: np.ndarray
     fold_sharpes: list; param_stability: float
+    n_trials_total: int
+    n_candidates_surviving_min_sharpe: int
     mc_results: dict = field(default_factory=dict)
     mc_passed: bool = False
     meta_rank_score: float = 0.0
@@ -105,56 +107,89 @@ class WFOEngine:
         tpf = max(30, n_trials // len(folds))
         log.info("WFO %s %s — %d folds × %d trials", self.family, asset, len(folds), tpf)
 
-        # Optimise on full training history (good warm-up for indicators)
-        train_all = prices  # full history is the training pool
-
-        cache = {}
-        def objective(trial):
-            p  = self.param_space_fn(trial)
-            ph = str(sorted(p.items()))
-            if ph not in cache:
-                r = self.strategy_fn(train_all, p)
-                cache[ph] = gt_score(r)
-            return cache[ph]
-
-        study = optuna.create_study(direction="maximize",
-                    sampler=optuna.samplers.TPESampler(seed=42))
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
-
-        # Evaluate top param sets on each OOS fold with WARMUP context
-        seen = set()
-        top_params = []
-        for t in sorted(study.trials, key=lambda x: -x.value):
-            ph = str(sorted(t.params.items()))
-            if ph not in seen:
-                seen.add(ph)
-                top_params.append(t.params)
-            if len(top_params) >= self.n_top * 3:
-                break
-
-        # Collect OOS returns per param set across all folds
-        param_oos = {str(sorted(p.items())): {"params":p,"oos":[],"fgt":[]}
-                     for p in top_params}
+        # Walk-forward, not walk-then-test-everywhere. Each fold gets its
+        # OWN Optuna study, scored only on prices.iloc[:train_end] where
+        # train_end = ts - WFO_EMBARGO_DAYS -- strictly before that fold's
+        # own test window, with a >=7-day embargo (WFO_EMBARGO_DAYS,
+        # matching stamp_prediction.HOLD_DAYS) so the training tail isn't
+        # immediately adjacent to a window a live system would still call
+        # unsettled, and so indicator warm-up computed near the boundary
+        # can't be read as having primed on the test window itself.
+        #
+        # WFO_STEP_DAYS == WFO_TEST_DAYS: folds tile [WFO_MIN_TRAIN_DAYS, n)
+        # with zero overlap, so a given calendar bar belongs to exactly one
+        # fold's test window. That's deliberate, not incidental -- an
+        # earlier design used WFO_STEP_DAYS=14 (half of TEST_DAYS=28),
+        # which covered the same unique OOS days but let two adjacent
+        # folds' test windows share 14 of their 28 days, so a param set
+        # rediscovered in both folds got that shared range pooled into its
+        # oos_returns twice -- inflating sharpe_oos/n_trades sample size
+        # without adding independent evidence. Non-overlapping folds make
+        # that duplication structurally impossible rather than something
+        # to dedupe or disclose after the fact. Trade-off: half as many
+        # folds (11 vs 21 at n=500), so param_stability -- the std of
+        # fold_sharpes for a param set that recurs across folds -- is now
+        # computed over fewer observations per param set.
+        #
+        # Verified empirically: poisoning a single fold's own test window
+        # never changes that fold's own selected params -- train_prices
+        # below is a slice ending strictly before that fold's own ts, so
+        # its objective function can never read that fold's held-out bars.
+        #
+        # The embargo costs the first fold outright: ts=WFO_MIN_TRAIN_DAYS
+        # (180) minus 7 is 173, below WFO_MIN_TRAIN_DAYS, so it's skipped.
+        param_oos = {}   # canonical params string -> accumulator, across the folds that (re)discovered it
+        n_trials_total = 0
 
         for ts, te in folds:
+            train_end = max(0, ts - WFO_EMBARGO_DAYS)
+            if train_end < WFO_MIN_TRAIN_DAYS:
+                continue
+            train_prices = prices.iloc[:train_end]
+
+            cache = {}
+            def objective(trial):
+                p  = self.param_space_fn(trial)
+                ph = str(sorted(p.items()))
+                if ph not in cache:
+                    r = self.strategy_fn(train_prices, p)
+                    cache[ph] = gt_score(r)
+                return cache[ph]
+
+            study = optuna.create_study(direction="maximize",
+                        sampler=optuna.samplers.TPESampler(seed=42))
+            study.optimize(objective, n_trials=tpf, show_progress_bar=False)
+            n_trials_total += tpf
+
+            seen = set()
+            fold_top = []
+            for t in sorted(study.trials, key=lambda x: -x.value):
+                ph = str(sorted(t.params.items()))
+                if ph not in seen:
+                    seen.add(ph)
+                    fold_top.append(t.params)
+                if len(fold_top) >= self.n_top * 3:
+                    break
+
             ctx_start  = max(0, ts - WARMUP)
             ctx_prices = prices.iloc[ctx_start:te]   # warmup + test bars
             n_test     = te - ts                       # true OOS length
 
-            for params in top_params:
+            for params in fold_top:
                 ph = str(sorted(params.items()))
                 try:
                     full_r = self.strategy_fn(ctx_prices, params)
                     oos_r  = full_r[-n_test:]          # only the test portion
                     if len(oos_r) > 0:
-                        param_oos[ph]["oos"].extend(oos_r.tolist())
-                        param_oos[ph]["fgt"].append(gt_score(oos_r))
+                        acc = param_oos.setdefault(ph, {"params": params, "oos": [], "fgt": []})
+                        acc["oos"].extend(oos_r.tolist())
+                        acc["fgt"].append(gt_score(oos_r))
                 except Exception:
                     pass
 
         # Build results, filter by min Sharpe
         results = []
-        for idx, (ph, d) in enumerate(param_oos.items()):
+        for ph, d in param_oos.items():
             oos = np.array(d["oos"])
             if len(oos) < 10: continue
             sh  = sharpe(oos)
@@ -168,9 +203,20 @@ class WFOEngine:
                 max_dd_oos=max_drawdown(oos), win_rate_oos=win_rate(oos),
                 n_trades=int((oos!=0).sum()), oos_returns=oos,
                 fold_sharpes=fs,
-                param_stability=float(np.std(fs)) if len(fs)>1 else 999.0))
+                param_stability=float(np.std(fs)) if len(fs)>1 else 999.0,
+                n_trials_total=n_trials_total,
+                n_candidates_surviving_min_sharpe=0))  # filled below
+
+        # (b) multiplicity disclosure: every survivor carries the same two
+        # numbers -- how many trials were actually searched this run, and
+        # how many OTHER candidates also cleared MIN_OOS_SHARPE -- so a
+        # reader can see "best of N" is not "the only one that worked."
+        # No deflation of the Sharpe itself yet, just visibility.
+        for r in results:
+            r.n_candidates_surviving_min_sharpe = len(results)
 
         results.sort(key=lambda r: r.gt_score_oos, reverse=True)
         top = results[:self.n_top]
-        log.info("WFO done: %d survived → top %d", len(results), len(top))
+        log.info("WFO done: %d survived (of %d trials total across %d folds) → top %d",
+                 len(results), n_trials_total, len(folds), len(top))
         return top

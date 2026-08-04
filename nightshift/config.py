@@ -36,9 +36,18 @@ REGIME_VOL_TARGET  = {0: 0.14, 1: 0.10, 2: 0.08, 3: 0.04}
 
 WFO_MIN_TRAIN_DAYS  = 180
 WFO_TEST_DAYS       = 28
-WFO_STEP_DAYS       = 14
+WFO_STEP_DAYS       = 28   # == WFO_TEST_DAYS: folds tile with zero overlap,
+                          # so no OOS day is ever pooled into a param set's
+                          # sample twice. Was 14 (half of TEST_DAYS); the
+                          # overlapping design covered the same 308 unique
+                          # days at n=500, just double-counted 14 of every
+                          # 28 -- fewer, cleaner folds, same coverage.
 OPTUNA_TRIALS       = 200
 MIN_OOS_SHARPE      = 0.15
+WFO_EMBARGO_DAYS    = 7   # >= stamp_prediction.HOLD_DAYS (kept as a literal,
+                          # not an import, to avoid a config<->stamp_prediction
+                          # cycle). Gap between a fold's training cutoff and
+                          # that fold's own test window start.
 
 GT_W_SHARPE      = 0.30
 GT_W_SIG         = 0.25

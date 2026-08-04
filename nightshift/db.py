@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS corpus (
     strategy_family TEXT, deployment_date TEXT, outcome_date TEXT,
     wfo_sharpe REAL, wfo_sortino REAL, wfo_calmar REAL,
     wfo_max_dd REAL, wfo_win_rate REAL, wfo_gt_score REAL, wfo_n_trades INTEGER,
+    wfo_n_trials INTEGER, wfo_n_candidates_surviving_min_sharpe INTEGER,
     mc_gate1_p10 REAL, mc_gate2_p10 REAL, mc_gate3_p10 REAL,
     mc_gate4_p10 REAL, mc_gate5_sensitivity REAL, mc_composite REAL,
     regime_state INTEGER, regime_prob REAL, regime_days_in INTEGER,
@@ -54,13 +55,18 @@ def init_db():
         cols = [r[1] for r in c.execute("PRAGMA table_info(corpus)").fetchall()]
         if "void_reason" not in cols:
             c.execute("ALTER TABLE corpus ADD COLUMN void_reason TEXT")
+        if "wfo_n_trials" not in cols:
+            c.execute("ALTER TABLE corpus ADD COLUMN wfo_n_trials INTEGER")
+        if "wfo_n_candidates_surviving_min_sharpe" not in cols:
+            c.execute("ALTER TABLE corpus ADD COLUMN wfo_n_candidates_surviving_min_sharpe INTEGER")
     log.info("DB ready at %s", DB_PATH)
 
 def insert_config_entry(cycle_id, config):
     sql = """INSERT INTO corpus (
         cycle_id,config_id,asset,strategy_family,deployment_date,
         wfo_sharpe,wfo_sortino,wfo_calmar,wfo_max_dd,wfo_win_rate,
-        wfo_gt_score,wfo_n_trades,mc_gate1_p10,mc_gate2_p10,mc_gate3_p10,
+        wfo_gt_score,wfo_n_trades,wfo_n_trials,wfo_n_candidates_surviving_min_sharpe,
+        mc_gate1_p10,mc_gate2_p10,mc_gate3_p10,
         mc_gate4_p10,mc_gate5_sensitivity,mc_composite,regime_state,
         regime_prob,regime_days_in,regime_transition_p,funding_rate,
         oi_trend_7d,exchange_flow_7d,vol_ratio,longshort_ratio,
@@ -68,7 +74,8 @@ def insert_config_entry(cycle_id, config):
     ) VALUES (
         :cycle_id,:config_id,:asset,:strategy_family,:deployment_date,
         :wfo_sharpe,:wfo_sortino,:wfo_calmar,:wfo_max_dd,:wfo_win_rate,
-        :wfo_gt_score,:wfo_n_trades,:mc_gate1_p10,:mc_gate2_p10,:mc_gate3_p10,
+        :wfo_gt_score,:wfo_n_trades,:wfo_n_trials,:wfo_n_candidates_surviving_min_sharpe,
+        :mc_gate1_p10,:mc_gate2_p10,:mc_gate3_p10,
         :mc_gate4_p10,:mc_gate5_sensitivity,:mc_composite,:regime_state,
         :regime_prob,:regime_days_in,:regime_transition_p,:funding_rate,
         :oi_trend_7d,:exchange_flow_7d,:vol_ratio,:longshort_ratio,
