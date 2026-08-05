@@ -336,6 +336,7 @@ published separately.
 - Long-only. No shorting, in any market condition.
 - One laptop, one person. No redundancy. Missed nights have happened and are
   published as PIPELINE_FAILURE entries.
+- `meta_model.feature_importances()` zips `FEATURE_COLS` against a loaded model's `feature_importances_` with no feature-schema stored in the pickle, so editing `FEATURE_COLS` after a model has trained would silently misalign importance labels against values rather than raising — no model exists on disk today, so this is a documented future hazard, not a current defect.
 
 ## Current state
 

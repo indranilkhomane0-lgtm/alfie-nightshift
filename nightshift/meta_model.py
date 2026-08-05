@@ -21,7 +21,13 @@ FEATURE_COLS = [
     "wfo_sharpe","wfo_sortino","wfo_calmar","wfo_max_dd","wfo_win_rate","wfo_gt_score",
     "mc_gate1_p10","mc_gate2_p10","mc_gate3_p10","mc_gate4_p10","mc_gate5_sensitivity","mc_composite",
     "regime_state","regime_prob","regime_days_in","regime_transition_p",
-    "funding_rate","oi_trend_7d","exchange_flow_7d","vol_ratio","longshort_ratio","btc_dominance_delta",
+    "funding_rate","oi_trend_7d","vol_ratio","longshort_ratio","btc_dominance_delta",
+    # exchange_flow_7d intentionally excluded: hardcoded 0.0 in
+    # nightshift/derivatives.py:125 (needs Glassnode, never wired) -- a
+    # permanently-constant feature that self_audit.py check 5's
+    # constant-column branch was flagging on every corpus row. The DB
+    # column and the derivatives.py placeholder both stay as-is; re-add
+    # here if a real data source is ever wired in.
 ]
 
 @dataclass
