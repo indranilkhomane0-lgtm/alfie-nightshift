@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260806  ·  2026-08-06 00:00 UTC  ·  21s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  1 — HIGH-VOL BULL  P=91%  days_in=31  trans_p=6%
+  Size mult: 75%  Vol target: 10% ann
+  Eligible: ['momentum', 'mean_rev', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] ETH/USDT_momentum_4feeefe77be6
+      WFO  Sharpe=5.11  Sortino=342.88  MaxDD=-0.1%
+      GT=57.552  stability_σ=n/a
+      MC   G1=5.11 G2=4.68 G3=4.74 G4=5.11 G5_sens=0.49
+      META [FALLBACK] corpus too small — using GT-Score=57.552
+      Params: {"fast_ma": 47, "slow_ma": 89, "rsi_entry": 36}
+
+  [2] ETH/USDT_momentum_b283a4c4d6d7
+      WFO  Sharpe=2.88  Sortino=74.78  MaxDD=-0.1%
+      GT=13.349  stability_σ=n/a
+      MC   G1=2.88 G2=2.06 G3=2.46 G4=2.88 G5_sens=0.50
+      META [FALLBACK] corpus too small — using GT-Score=13.349
+      Params: {"fast_ma": 45, "slow_ma": 80, "rsi_entry": 24}
+
+  [3] ETH/USDT_momentum_d631ab9ec373
+      WFO  Sharpe=2.53  Sortino=4.75  MaxDD=-4.0%
+      GT=1.880  stability_σ=n/a
+      MC   G1=2.53 G2=2.29 G3=1.79 G4=2.53 G5_sens=0.22
+      META [FALLBACK] corpus too small — using GT-Score=4.712
+      Params: {"fast_ma": 10, "slow_ma": 40, "rsi_entry": 29}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
