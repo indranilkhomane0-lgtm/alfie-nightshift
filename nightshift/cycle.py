@@ -288,6 +288,8 @@ class NightShiftCycle:
         for cfg in cfg_dicts:
             try:
                 _p = _stamp(cfg, prices[cfg["asset"]]["close"].tolist())
+                if _p is None:
+                    continue
                 log.info("  Prediction stamped: %s %s %s @ %s",
                          _p["asset"], _p["config_id"], _p["direction"], _p["entry_price"])
             except Exception as _e:

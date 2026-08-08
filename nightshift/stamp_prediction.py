@@ -3,18 +3,28 @@
 Alfie Night Shift — prediction stamp.
 
 Records a concrete, gradeable prediction for every config that passed MC
-gating that night (not just the single top-ranked config), so the outcome
-labeler has a fixed claim to grade HOLD_DAYS later for each of them. An
-asset can produce zero, one, or several stamped predictions on a given
-night depending on how many of its configs passed gating.
+gating that night AND has a live entry signal today (not just the single
+top-ranked config), so the outcome labeler has a fixed claim to grade
+HOLD_DAYS later for each of them. A config that passed gating but has no
+entry signal produces no row at all -- see the direction == "none" check
+in stamp() below -- rather than a row that could only ever grade NO_CALL.
+An asset can therefore produce zero, one, or several stamped predictions
+on a given night, depending on how many of its gated configs both passed
+and are actually signaling entry today.
 
 DIRECTION IS DERIVED FROM THE STRATEGY'S OWN ENTRY CONDITION.
 Every strategy in nightshift/strategies is LONG-ONLY (signal is 0.0 or 1.0,
-never negative). Therefore this module can only ever emit:
-    "long" -> the strategy's entry condition is true today
-    "none" -> no entry signal today; graded NO_CALL, excluded from the corpus
+never negative). Therefore entry_signal() can only ever return:
+    "long" -> the strategy's entry condition is true today; stamped
+    "none" -> no entry signal today; stamp() logs it and returns None,
+              writing nothing
 It must never emit "short". Alfie does not short, and the record must not
 claim a call the system never made.
+
+Predictions stamped before this change (2026-08-08) include "none" and
+"neutral" rows written under the old behaviour; label_outcomes.py still
+grades those NO_CALL exactly as before -- this only changes what gets
+written going forward, not what's already in reports/predictions.jsonl.
 
 Entry conditions mirrored from nightshift/strategies/__init__.py:
     mean_rev : RSI(rsi_period) < rsi_low
@@ -23,11 +33,13 @@ Entry conditions mirrored from nightshift/strategies/__init__.py:
 """
 
 import json
+import logging
 from datetime import date, timedelta
 from pathlib import Path
 
 HOLD_DAYS = 7
 PRED_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
+log = logging.getLogger(__name__)
 
 
 def _rsi(closes, period=14):
@@ -92,11 +104,14 @@ def entry_signal(family: str, params: dict, closes) -> tuple:
     return ("none", {"note": f"unknown family {family}"})
 
 
-def stamp(cfg: dict, closes) -> dict:
+def stamp(cfg: dict, closes) -> dict | None:
     closes = [float(c) for c in closes]
     params = cfg.get("params", {}) or {}
     family = cfg.get("strategy_family", "")
     direction, diag = entry_signal(family, params, closes)
+    if direction == "none":
+        log.info("  %s: no entry signal tonight (%s)", cfg.get("config_id"), diag)
+        return None
     entry = date.today()
     pred = {
         "prediction_id": f"{cfg['config_id'].replace('/','')}_{entry.isoformat()}",

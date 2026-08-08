@@ -53,6 +53,16 @@ def main():
     outcomes = Counter(p.get("outcome") or p.get("status") or "OPEN" for p in preds)
     settled_dates = {p.get("settle_date") for p in preds
                      if p.get("outcome") in ("WIN", "LOSS")}
+    labeled_rows = outcomes.get("WIN", 0) + outcomes.get("LOSS", 0)
+    # Multiple configs on the same asset, same direction, same night grade
+    # identically -- same entry price, same settle price, same WIN/LOSS --
+    # so they're one unit of evidence, not len(configs). settled_dates
+    # above already collapses a whole night to one date regardless of
+    # asset; this keeps different assets distinct while still collapsing
+    # same-asset repeats, so it can undercount less than settled_dates
+    # while still not treating N configs agreeing as N independent votes.
+    distinct_calls = {(p.get("asset"), p.get("direction"), p.get("cycle_date"))
+                       for p in preds if p.get("outcome") in ("WIN", "LOSS")}
     # Only long/short predictions can ever become WIN or LOSS. A 'none'
     # prediction grades NO_CALL and is excluded from the corpus, so it moves
     # metric 2 not at all. This is the real pipeline toward graduation.
@@ -69,6 +79,8 @@ def main():
     print(f"2. labeled settle dates ....... {len(settled_dates)} of 30"
           f"   (WIN {outcomes.get('WIN',0)} / LOSS {outcomes.get('LOSS',0)}"
           f" / NO_CALL {outcomes.get('NO_CALL',0)})")
+    print(f"   labeled rows ................ {labeled_rows}"
+          f"   distinct (asset,direction,night) calls . {len(distinct_calls)}")
     print(f"   gradeable in flight ........ {len(gradeable)}"
           f"   <- only long/short can ever become WIN/LOSS")
     print(f"   open {open_n} ({open_n - len(gradeable)} are direction=none -> NO_CALL)"
