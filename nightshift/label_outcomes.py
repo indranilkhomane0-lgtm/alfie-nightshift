@@ -31,6 +31,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.bar_calendar import is_utc_daily_bar_complete
+
 PRED_PATH = ROOT / "reports" / "predictions.jsonl"
 
 
@@ -51,11 +54,11 @@ def fetch_settle_close(asset: str, settle_date: str):
     A daily bar is only final once the next UTC day has begun. Return None
     until then; the caller leaves the prediction OPEN and retries tomorrow.
     """
+    if not is_utc_daily_bar_complete(settle_date):
+        return None  # settle day still in progress — no final close exists yet
     import ccxt
     bar_start = (datetime.strptime(settle_date, "%Y-%m-%d")
                  .replace(tzinfo=timezone.utc))
-    if datetime.now(timezone.utc) < bar_start + timedelta(days=1):
-        return None  # settle day still in progress — no final close exists yet
     ex = ccxt.binance({"enableRateLimit": True})
     since = int(bar_start.timestamp() * 1000)
     bars = ex.fetch_ohlcv(asset, "1d", since=since, limit=3)

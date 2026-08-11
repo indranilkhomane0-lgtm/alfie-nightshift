@@ -287,7 +287,7 @@ class NightShiftCycle:
         from nightshift.stamp_prediction import stamp as _stamp
         for cfg in cfg_dicts:
             try:
-                _p = _stamp(cfg, prices[cfg["asset"]]["close"].tolist())
+                _p = _stamp(cfg, prices[cfg["asset"]], source=EXCHANGE_ID)
                 if _p is None:
                     continue
                 log.info("  Prediction stamped: %s %s %s @ %s",

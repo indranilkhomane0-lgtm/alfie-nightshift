@@ -33,12 +33,18 @@ Entry conditions mirrored from nightshift/strategies/__init__.py:
 """
 
 import json
+import hashlib
 import logging
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from core.bar_calendar import is_utc_daily_bar_complete
+
 HOLD_DAYS = 7
-PRED_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
+PRED_PATH = ROOT / "reports" / "predictions.jsonl"
 log = logging.getLogger(__name__)
 
 
@@ -104,8 +110,36 @@ def entry_signal(family: str, params: dict, closes) -> tuple:
     return ("none", {"note": f"unknown family {family}"})
 
 
-def stamp(cfg: dict, closes) -> dict | None:
-    closes = [float(c) for c in closes]
+def _context_hash(ohlcv, source, fetched_at) -> str:
+    """SHA-256 over the exact OHLCV window used for this stamp, plus the
+    data source identifier and fetch timestamp when known. Lets a reader
+    verify the INPUT series a prediction was made against -- not just
+    that the prediction itself was committed before settlement -- by
+    re-fetching the same historical window from `source` and re-hashing
+    it the same way. Caller is responsible for passing only CLOSED bars
+    (see stamp()) -- this function hashes whatever it's given verbatim.
+    Same canonical-JSON + sha256 pattern as wfo_engine._config_id():
+    sort_keys + compact separators, so the same window always hashes to
+    the same value regardless of dict ordering. Reproducing the hash
+    independently requires the source to still serve that exact
+    historical range unchanged -- the same caveat that already applies
+    to re-fetching for verify_chain.py or the .ots anchors, not a new
+    one."""
+    idx = [i.isoformat() if hasattr(i, "isoformat") else str(i) for i in ohlcv.index]
+    payload = {
+        "index": idx,
+        "open": ohlcv["open"].tolist(), "high": ohlcv["high"].tolist(),
+        "low": ohlcv["low"].tolist(), "close": ohlcv["close"].tolist(),
+        "volume": ohlcv["volume"].tolist(),
+        "source": source, "fetched_at": fetched_at,
+    }
+    canon = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def stamp(cfg: dict, ohlcv, source: str | None = None,
+          fetched_at: str | None = None) -> dict | None:
+    closes = ohlcv["close"].tolist()   # full series, live bar included -- signal math is unaffected
     params = cfg.get("params", {}) or {}
     family = cfg.get("strategy_family", "")
     direction, diag = entry_signal(family, params, closes)
@@ -113,6 +147,17 @@ def stamp(cfg: dict, closes) -> dict | None:
         log.info("  %s: no entry signal tonight (%s)", cfg.get("config_id"), diag)
         return None
     entry = date.today()
+
+    # context_hash covers only CLOSED bars. ohlcv's last row is today's
+    # in-progress daily candle -- its OHLC keeps changing until the UTC
+    # day ends, so hashing it would make context_hash permanently
+    # unreproducible: a reader re-fetching later gets a different final
+    # bar and therefore a different hash. is_utc_daily_bar_complete()
+    # (core/bar_calendar.py) enforces the identical boundary
+    # label_outcomes.fetch_settle_close() already uses for grading, so
+    # the two can't disagree about what's "final."
+    closed = ohlcv[[is_utc_daily_bar_complete(i) for i in ohlcv.index]]
+
     pred = {
         "prediction_id": f"{cfg['config_id'].replace('/','')}_{entry.isoformat()}",
         "cycle_date": entry.isoformat(),
@@ -128,6 +173,12 @@ def stamp(cfg: dict, closes) -> dict | None:
         "regime_state": cfg.get("regime_state"),
         "wfo_n_trials": cfg.get("wfo_n_trials"),
         "wfo_n_candidates_surviving_min_sharpe": cfg.get("wfo_n_candidates_surviving_min_sharpe"),
+        "context_hash": _context_hash(closed, source, fetched_at),
+        "context_source": source,
+        "context_start": closed.index[0].isoformat() if len(closed) else None,
+        "context_end": closed.index[-1].isoformat() if len(closed) else None,
+        "context_n_bars": len(closed),
+        "context_fetched_at": fetched_at,
         "status": "OPEN",
     }
     PRED_PATH.parent.mkdir(parents=True, exist_ok=True)
