@@ -28,6 +28,16 @@ OTS = ROOT / "reports" / "ots"
 AUDIT = ROOT / "reports" / "audit"
 WATCHDOG_LOG = ROOT / "nightshift" / "logs" / "watchdog.log"
 
+# Pre-registered product criteria -- chain entry
+# 3c2ee64d54852366c9149c01a4eaa11f20c54fe8a63d455aaa4510b535e194bd
+# (2026-08-11, "PRE-REGISTRATION OF PRODUCT AND DESIGN CRITERIA"). Free-form
+# prose in that entry's description, not structured data, so the numbers
+# below are transcribed by hand, not parsed -- verify against the entry
+# itself if in doubt, don't trust this comment either.
+CRITERIA_MIN_CALLS_PER_MONTH = 4
+CRITERIA_SUSTAINED_DAYS = 90
+CRITERIA_GRADUATION_N = 30
+
 
 def _git(*args):
     try:
@@ -101,6 +111,35 @@ def main():
     #    is the point. It lives in the Airtable outreach board.
     print(f"5. outreach touches sent/week . NOT TRACKED HERE"
           f"  <- the one that lags; check the Airtable board")
+
+    print()
+    print(f"── pre-registered criteria (chain entry 3c2ee64d…, 2026-08-11) ──")
+    cutoff_90d = (datetime.now(timezone.utc).date() - timedelta(days=CRITERIA_SUSTAINED_DAYS)).isoformat()
+    # Frequency measures how often the engine PRODUCES a call, not how many
+    # produced usable evidence -- a call later voided for bad exchange data
+    # was still a call made, so VOID rows count here (unlike distinct_calls
+    # above, which is scoped to graded WIN/LOSS rows for the graduation gate).
+    recent_distinct_calls = {(p.get("asset"), p.get("direction"), p.get("cycle_date"))
+                              for p in preds
+                              if p.get("direction") in ("long", "short")
+                              and (p.get("cycle_date") or "") >= cutoff_90d}
+    recent_voided_calls = {(p.get("asset"), p.get("direction"), p.get("cycle_date"))
+                            for p in preds
+                            if p.get("direction") in ("long", "short")
+                            and p.get("status") == "VOID"
+                            and (p.get("cycle_date") or "") >= cutoff_90d}
+    calls_per_month = len(recent_distinct_calls) / CRITERIA_SUSTAINED_DAYS * 30
+    print(f"   graduation gate ............. {len(distinct_calls)} of {CRITERIA_GRADUATION_N}"
+          f" distinct labeled calls (criteria two and three need this)")
+    print(f"   one — frequency .............. threshold >={CRITERIA_MIN_CALLS_PER_MONTH}/month"
+          f" sustained {CRITERIA_SUSTAINED_DAYS}d"
+          f"   actual {len(recent_distinct_calls)} calls in trailing {CRITERIA_SUSTAINED_DAYS}d"
+          f" = {calls_per_month:.2f}/month"
+          f"  ({len(recent_voided_calls)} of those later voided)")
+    print(f"   two — edge ................... mean 7d return vs buy-and-hold"
+          f"   not yet computable — needs {CRITERIA_GRADUATION_N}, have {len(distinct_calls)}")
+    print(f"   three — meta-model ........... ranking vs random on held-out rows"
+          f"   not yet computable — needs {CRITERIA_GRADUATION_N}, have {len(distinct_calls)}")
 
     print()
     print(f"   entry types: {dict(types)}")
