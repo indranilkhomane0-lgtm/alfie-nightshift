@@ -28,6 +28,7 @@ from pathlib import Path
 
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
 REPO_ROOT = Path(__file__).resolve().parent.parent
+PREDICTIONS_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
 GENESIS_HASH = "0" * 64
 
 
@@ -64,10 +65,41 @@ def _code_version():
         return "unknown", "unknown"
 
 
+def _predictions_snapshot():
+    """(row count, sha256, read_error) for reports/predictions.jsonl at
+    the moment this entry is chained -- makes deletion or truncation of
+    the predictions file detectable against the chain instead of
+    silently unnoticed (the gap disclosed in chain entry 70). Same
+    fail-safe philosophy as _code_version(): never raises. Missing or
+    unreadable file -> (None, None, "<reason>"); an entry must still get
+    written, never blocked by this.
+
+    Deliberately NOT cached, unlike _code_version() -- void_predictions.py
+    rewrites predictions.jsonl and then calls append_entry() in the same
+    process; a cached snapshot from before that rewrite would silently
+    chain a stale hash for the very VOID_DECISION entry meant to cover
+    it."""
+    try:
+        data = PREDICTIONS_PATH.read_bytes()
+    except FileNotFoundError:
+        return None, None, "predictions.jsonl does not exist yet"
+    except Exception as exc:
+        return None, None, f"could not read predictions.jsonl: {exc!r}"
+    n = sum(1 for line in data.splitlines() if line.strip())
+    return n, hashlib.sha256(data).hexdigest(), None
+
+
 def append_entry(payload: dict) -> dict:
     prev = last_hash()
     sha, dirty = _code_version()
-    payload = {**payload, "code_version": sha, "code_dirty": dirty}
+    n, preds_sha256, read_error = _predictions_snapshot()
+    payload = {
+        **payload,
+        "code_version": sha, "code_dirty": dirty,
+        "predictions_n": n, "predictions_sha256": preds_sha256,
+    }
+    if read_error:
+        payload["predictions_read_error"] = read_error
     entry = {
         "published_at_utc": datetime.now(timezone.utc).isoformat(),
         "prev_hash": prev,

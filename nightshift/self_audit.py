@@ -2,7 +2,7 @@
 """
 Alfie Night Shift — self-audit.
 
-Six checks against the pipeline's own historical record and current
+Seven checks against the pipeline's own historical record and current
 source, chained as an AUDIT_RESULT entry every night — pass or fail,
 never silently absent, same reasoning as PIPELINE_FAILURE: a missing
 night is worse than a bad one. Full findings go to
@@ -37,18 +37,25 @@ WHAT THIS CANNOT CATCH — read this before trusting a green result:
     - Scope is nightshift/ only, except check 4 (dead-code reachability),
       which also scans core/ since verify_chain.py moved there (see
       AST_SCAN_DIRS). The other five checks remain nightshift/-scoped.
-      None of the six would catch a stale claim living outside
+      None of the seven would catch a stale claim living outside
       nightshift/ and core/ (docs/, a README, the launchd plists,
       run_and_publish.sh itself).
     - No external ground truth. This checks internal consistency (does
       the code call the code, does the config match the registry) — it
       cannot tell you if a fetched price or a computed Sharpe is right.
+    - Same-count corruption (check 7). Compares predictions_n across
+      chain entries; a rewrite that preserves the row count while
+      changing content (a same-length truncate-and-pad, or an edited
+      row) changes predictions_sha256 but not predictions_n, and this
+      check never re-reads predictions.jsonl to compare against
+      predictions_sha256 -- it only compares the count already stamped
+      into each entry.
 
 Publish-and-continue, always. Wrapped in the same outer try/except
 anchor_ots.py uses: an audit failure is logged and chained, never
 raised. This is a smoke detector, not a sprinkler system — nothing here
-blocks the nightly cycle. Each of the six checks also runs in its own
-try/except so one crashing check doesn't blank out the other five.
+blocks the nightly cycle. Each of the seven checks also runs in its own
+try/except so one crashing check doesn't blank out the other six.
 
 Usage (called by run_and_publish.sh FIRST, before every early-exit guard,
 so it still runs on nights the cycle aborts -- the nights calendar-gap
@@ -522,7 +529,7 @@ def check_feature_cols_populated() -> dict:
 
 def check_gate_registry_match() -> dict:
     """Pure symbol-set comparison, no timing or semantic ambiguity --
-    lowest blind-spot risk of the six. Flags both directions: families
+    lowest blind-spot risk among these checks. Flags both directions: families
     gate-eligible but unimplemented, and families implemented but never
     referenced by any regime (structurally unselectable)."""
     finding = {"name": "gate_registry_match", "status": "PASS", "detail": {}}
@@ -549,6 +556,46 @@ def check_gate_registry_match() -> dict:
     return finding
 
 
+# ── Check 7: predictions.jsonl row count is monotonic ──────────────────
+
+def check_predictions_row_count_monotonic(entries: list[dict]) -> dict:
+    """predictions.jsonl is append-only in practice, not just in name --
+    stamp_prediction.py only ever appends; label_outcomes.py and
+    void_predictions.py both rewrite the SAME parsed row list back to
+    disk (grading or voiding rows in place), never dropping one. Read
+    both before relying on this: neither ever produces a shorter output
+    than its input. So predictions_n (publish_chain.append_entry, see
+    _predictions_snapshot) should never decrease from one chain entry to
+    the next -- a decrease means the file was deleted or truncated
+    between those two published moments, the gap disclosed in chain
+    entry 70 and previously undetectable.
+
+    Entries published before predictions_n existed carry no such field
+    ("predates" this check, same convention verify_chain.py already uses
+    for code_version) and are skipped entirely -- as both a "previous"
+    and a "current" value -- so comparison only ever happens between two
+    entries that both actually carry it.
+
+    See the module docstring's WHAT THIS CANNOT CATCH for what this
+    specific check misses (same-count corruption)."""
+    finding = {"name": "predictions_row_count_monotonic", "status": "PASS",
+               "detail": {"decreases": []}}
+    prev_n, prev_hash = None, None
+    for e in entries:
+        n = e.get("payload", {}).get("predictions_n")
+        if n is None:
+            continue  # predates this field, or a read_error entry -- not comparable
+        if prev_n is not None and n < prev_n:
+            finding["detail"]["decreases"].append({
+                "from_entry_hash": prev_hash, "from_n": prev_n,
+                "to_entry_hash": e.get("entry_hash"), "to_n": n,
+            })
+        prev_n, prev_hash = n, e.get("entry_hash")
+    if finding["detail"]["decreases"]:
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -568,6 +615,7 @@ def main() -> int:
             _run_check(check_dead_code),
             _run_check(check_feature_cols_populated),
             _run_check(check_gate_registry_match),
+            _run_check(check_predictions_row_count_monotonic, entries),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -631,6 +679,7 @@ FINDING_KEYS = {
     "flagged", "parse_errors",
     "sidecar_flags", "constant_columns",
     "gated_but_unimplemented", "implemented_but_never_gated",
+    "decreases",
 }
 
 
