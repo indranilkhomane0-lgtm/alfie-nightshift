@@ -2,7 +2,7 @@
 """
 Alfie Night Shift — self-audit.
 
-Seven checks against the pipeline's own historical record and current
+Eight checks against the pipeline's own historical record and current
 source, chained as an AUDIT_RESULT entry every night — pass or fail,
 never silently absent, same reasoning as PIPELINE_FAILURE: a missing
 night is worse than a bad one. Full findings go to
@@ -34,12 +34,13 @@ WHAT THIS CANNOT CATCH — read this before trusting a green result:
     - A calendar gap (check 1) says a night is missing, not why. Crash,
       operator absence, and a correctly-triggered network guard all look
       identical to this check.
-    - Scope is nightshift/ only, except check 4 (dead-code reachability),
-      which also scans core/ since verify_chain.py moved there (see
-      AST_SCAN_DIRS). The other five checks remain nightshift/-scoped.
-      None of the seven would catch a stale claim living outside
-      nightshift/ and core/ (docs/, a README, the launchd plists,
-      run_and_publish.sh itself).
+    - Scope is nightshift/ only, except check 4 (dead-code reachability,
+      also scans core/ since verify_chain.py moved there -- see
+      AST_SCAN_DIRS) and check 8 (documentation reference integrity,
+      scoped specifically to README.md, run_and_publish.sh, and
+      launchd/*.plist). The other six checks remain nightshift/-scoped.
+      Check 8 itself is narrow -- see its own bullet below -- so most of
+      what those three files claim is still unchecked by anything here.
     - No external ground truth. This checks internal consistency (does
       the code call the code, does the config match the registry) — it
       cannot tell you if a fetched price or a computed Sharpe is right.
@@ -50,12 +51,26 @@ WHAT THIS CANNOT CATCH — read this before trusting a green result:
       check never re-reads predictions.jsonl to compare against
       predictions_sha256 -- it only compares the count already stamped
       into each entry.
+    - Prose truth != prose citations (check 8). Verifies that a cited
+      file path exists, that the quoted verify command resolves, and
+      that a small allowlist of numeric constants cited as
+      `NAME=NUMBER` in README prose (WFO_STEP_DAYS, WFO_EMBARGO_DAYS,
+      HOLD_DAYS, and similar) matches the running code. It cannot verify
+      that a narrative claim is still true -- "the meta-model has never
+      trained on real data" could become false the day training
+      succeeds, and nothing here would notice unless that sentence also
+      happened to cite a now-wrong path or constant. Path matching is a
+      single regex over free text/shell/XML, not a markdown/shell/plist
+      parser; `NAME=NUMBER` is the only numeric citation style
+      recognised, so prose forms like "a 7-day embargo
+      (WFO_EMBARGO_DAYS)" are silently not checked -- a known
+      false-negative, not a pass.
 
 Publish-and-continue, always. Wrapped in the same outer try/except
 anchor_ots.py uses: an audit failure is logged and chained, never
 raised. This is a smoke detector, not a sprinkler system — nothing here
-blocks the nightly cycle. Each of the seven checks also runs in its own
-try/except so one crashing check doesn't blank out the other six.
+blocks the nightly cycle. Each of the eight checks also runs in its own
+try/except so one crashing check doesn't blank out the other seven.
 
 Usage (called by run_and_publish.sh FIRST, before every early-exit guard,
 so it still runs on nights the cycle aborts -- the nights calendar-gap
@@ -67,6 +82,7 @@ import ast
 import hashlib
 import json
 import logging
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -596,6 +612,130 @@ def check_predictions_row_count_monotonic(entries: list[dict]) -> dict:
     return finding
 
 
+# ── Check 8: documentation reference integrity ──────────────────────────
+
+# Matches a repo-relative-looking path with >=1 '/' and a dotted
+# extension, e.g. nightshift/verify_chain.py or reports/chain.jsonl.
+# Deliberately requires a dotted final segment so it doesn't fire on
+# bare module names (WFOEngine), dotted Python refs
+# (nightshift.config.WFO_STEP_DAYS -- no '/'), or directory-only
+# mentions (reports/ots/) with no filename to check.
+_DOC_PATH_RE = re.compile(r'/?(?:[A-Za-z0-9_.\-]+/)+[A-Za-z0-9_\-]+\.[A-Za-z0-9]+')
+# Matches the literal citation style `NAME=NUMBER` in backticks -- the
+# only numeric-constant citation form this check recognises; see the
+# module docstring's WHAT THIS CANNOT CATCH for the forms it misses.
+_DOC_CONST_RE = re.compile(r'`([A-Za-z_][A-Za-z0-9_]*)=(-?\d+(?:\.\d+)?)`')
+# Matches a "python3 <path>" invocation as quoted in README.md's verify
+# instructions.
+_DOC_VERIFY_CMD_RE = re.compile(r'^\s*python3\s+(\S+)', re.MULTILINE)
+
+
+def check_doc_reference_integrity() -> dict:
+    """Scoped to exactly the three places the docstring above names as
+    uncovered by every other check: README.md, run_and_publish.sh, and
+    launchd/*.plist. Three things, all structural, none semantic:
+    (a) every path-looking token in those files resolves to a real file
+    -- core/verify_chain.py moving out of nightshift/ is exactly the
+    failure shape this exists to catch; (b) numeric constants cited in
+    README prose as `NAME=NUMBER` match the live value in
+    nightshift/config.py (or, for HOLD_DAYS specifically, in
+    nightshift/stamp_prediction.py -- not every constant a reader would
+    call "config" lives in config.py, and HOLD_DAYS is exactly that
+    case); (c) every `python3 <path>` command quoted in README.md
+    resolves, checked separately from (a) because a broken verify
+    command breaks this project's central claim ("verify it yourself"),
+    not just a stray reference.
+
+    Absolute paths are only checked when they fall under this repo's own
+    ROOT (the launchd plists' ProgramArguments, for instance); an
+    absolute path elsewhere on the machine (/usr/bin/python3, an
+    interpreter path) is out of scope for a documentation check and is
+    skipped, not flagged."""
+    finding = {
+        "name": "doc_reference_integrity", "status": "PASS",
+        "detail": {
+            "missing_paths": [], "broken_verify_commands": [],
+            "constant_mismatches": [],
+            "known_limitation": (
+                "Path extraction is one regex over free text/shell/XML, not "
+                "a real markdown/shell/plist parser -- URLs and '...'-"
+                "truncated example hashes are explicitly excluded, "
+                "everything else matching word/word.ext is checked. "
+                "Numeric-constant checking only recognises the literal "
+                "`NAME=NUMBER` citation style."
+            ),
+        },
+    }
+
+    scan_files = [ROOT / "README.md", ROOT / "run_and_publish.sh"]
+    launchd_dir = ROOT / "launchd"
+    if launchd_dir.exists():
+        scan_files += sorted(launchd_dir.glob("*.plist"))
+
+    readme_text = None
+    for path in scan_files:
+        try:
+            text = path.read_text()
+        except Exception as exc:
+            finding["detail"].setdefault("unreadable_files", []).append(
+                {"file": str(path.name), "error": str(exc)})
+            continue
+        if path.name == "README.md":
+            readme_text = text
+
+            for m in _DOC_VERIFY_CMD_RE.finditer(text):
+                cited = m.group(1)
+                target = Path(cited) if cited.startswith("/") else ROOT / cited
+                if not target.exists():
+                    finding["detail"]["broken_verify_commands"].append(
+                        {"file": path.name, "cited": cited})
+
+        for m in _DOC_PATH_RE.finditer(text):
+            token = m.group(0)
+            if "..." in token:
+                continue  # truncated/illustrative example, not a real path
+            if text[max(0, m.start() - 3):m.start()] == "://":
+                continue  # URL, not a repo file
+            if token.startswith(str(ROOT)):
+                target = Path(token)
+            elif token.startswith("/"):
+                continue  # absolute path outside this repo -- not in scope
+            else:
+                target = ROOT / token
+            if not target.exists():
+                finding["detail"]["missing_paths"].append(
+                    {"file": path.name, "cited": token})
+
+    try:
+        sys.path.insert(0, str(ROOT))
+        from nightshift.config import (WFO_MIN_TRAIN_DAYS, WFO_TEST_DAYS,
+            WFO_STEP_DAYS, WFO_EMBARGO_DAYS, OPTUNA_TRIALS, MIN_OOS_SHARPE,
+            OHLCV_DAYS)
+        from nightshift.stamp_prediction import HOLD_DAYS
+        known = {
+            "WFO_MIN_TRAIN_DAYS": WFO_MIN_TRAIN_DAYS, "WFO_TEST_DAYS": WFO_TEST_DAYS,
+            "WFO_STEP_DAYS": WFO_STEP_DAYS, "WFO_EMBARGO_DAYS": WFO_EMBARGO_DAYS,
+            "OPTUNA_TRIALS": OPTUNA_TRIALS, "MIN_OOS_SHARPE": MIN_OOS_SHARPE,
+            "OHLCV_DAYS": OHLCV_DAYS, "HOLD_DAYS": HOLD_DAYS,
+        }
+        if readme_text is not None:
+            for m in _DOC_CONST_RE.finditer(readme_text):
+                name, cited_str = m.group(1), m.group(2)
+                if name not in known:
+                    continue
+                cited, actual = float(cited_str), float(known[name])
+                if cited != actual:
+                    finding["detail"]["constant_mismatches"].append(
+                        {"name": name, "cited_in_readme": cited, "actual_in_code": actual})
+    except Exception as exc:
+        finding["detail"]["constant_check_note"] = f"could not verify constants: {exc}"
+
+    if any(finding["detail"][k] for k in
+           ("missing_paths", "broken_verify_commands", "constant_mismatches")):
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -616,6 +756,7 @@ def main() -> int:
             _run_check(check_feature_cols_populated),
             _run_check(check_gate_registry_match),
             _run_check(check_predictions_row_count_monotonic, entries),
+            _run_check(check_doc_reference_integrity),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -680,6 +821,7 @@ FINDING_KEYS = {
     "sidecar_flags", "constant_columns",
     "gated_but_unimplemented", "implemented_but_never_gated",
     "decreases",
+    "missing_paths", "broken_verify_commands", "constant_mismatches",
 }
 
 
