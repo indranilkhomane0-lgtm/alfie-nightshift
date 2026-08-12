@@ -26,6 +26,7 @@ PREDS = ROOT / "reports" / "predictions.jsonl"
 DB = ROOT / "nightshift" / "corpus.db"
 OTS = ROOT / "reports" / "ots"
 AUDIT = ROOT / "reports" / "audit"
+WATCHDOG_LOG = ROOT / "nightshift" / "logs" / "watchdog.log"
 
 
 def _git(*args):
@@ -123,6 +124,20 @@ def main():
                and e["payload"].get("type") != "AUDIT_RESULT"]
         flag = "" if got else "  <- NO PIPELINE ENTRY"
         print(f"   {d}: {got or '(nothing)'}{flag}")
+
+    # watchdog: how often has the unpushed-commit / missing-entry guard
+    # actually fired in the last 14 days. SELF-HEALED counts too -- a
+    # recurring self-heal is still a recurring push failure, just one
+    # that stopped needing a human to notice. Loosely UTC-vs-IST scoped
+    # (watchdog.log timestamps are IST, `today` here is UTC) -- fine for
+    # a 14-day trend count, not meant to be a precise audit.
+    if WATCHDOG_LOG.exists():
+        cutoff = (today - timedelta(days=14)).isoformat()
+        hits = sum(1 for line in WATCHDOG_LOG.read_text().splitlines()
+                   if line[:10] >= cutoff and ("ALERT" in line or "SELF-HEALED" in line))
+        print(f"   watchdog: {hits} ALERT/SELF-HEALED in last 14 days")
+    else:
+        print("   watchdog: no log yet")
 
     # audit result
     a = AUDIT / f"audit_{today.strftime('%Y%m%d')}.json"

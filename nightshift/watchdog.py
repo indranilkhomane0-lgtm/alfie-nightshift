@@ -41,6 +41,39 @@ def last_entry():
     return json.loads(last_line)
 
 
+def try_push() -> tuple[bool, str]:
+    """Attempt to push HEAD to its upstream. Returns (success, detail) --
+    detail is git's stderr/stdout on failure, empty on success.
+
+    This is a second, independent push attempt, made minutes after
+    run_and_publish.sh's own 3-retry push loop already gave up at
+    publish time -- whatever transient condition blocked that (network,
+    auth token refresh, a momentarily unreachable remote) may have
+    cleared by the time the watchdog runs. No retries here; one attempt,
+    fast fail, so the watchdog itself doesn't hang."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "push"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return True, ""
+        return False, (result.stderr or result.stdout or "").strip()
+    except Exception as exc:
+        return False, repr(exc)
+
+
+def _sanitize_for_notification(text: str, max_len: int = 200) -> str:
+    """Strip characters that would break out of the double-quoted
+    AppleScript string alert() builds -- raw git stderr can contain
+    either -- and cap length. The notification is a heads-up, not the
+    record: watchdog.log always gets the full, unsanitized text."""
+    cleaned = text.replace('"', "").replace("\\", "")
+    if len(cleaned) > max_len:
+        return cleaned[:max_len].rstrip() + "…"
+    return cleaned
+
+
 def unpushed_commits() -> bool:
     """True if HEAD is ahead of the last-known remote ref. No network hit --
     compares against git's local remote-tracking ref, not a live fetch."""
@@ -93,13 +126,20 @@ def main() -> int:
             return 1
 
         if unpushed_commits():
-            msg = (
+            pushed, push_error = try_push()
+            if pushed:
+                log(f"SELF-HEALED — {kind} for {today} was unpushed at watchdog "
+                    f"run (chained locally at {published.strftime('%H:%M IST')}); "
+                    f"watchdog's push succeeded, now reaches origin.")
+                return 0
+            base = (
                 f"{kind} for {today} was chained locally at "
                 f"{published.strftime('%H:%M IST')} but never reached origin "
-                f"(git push must have failed all 3 retries)."
+                f"(git push must have failed all 3 retries). Watchdog's own "
+                f"push retry also failed: "
             )
-            log(f"ALERT — {msg}")
-            alert(msg)
+            log(f"ALERT — {base}{push_error or 'no error output'}")
+            alert(f"{base}{_sanitize_for_notification(push_error) or 'no error output'}")
             return 1
 
         log(f"OK — {kind} published {published.strftime('%H:%M IST')} for {today}, pushed to origin.")
