@@ -131,7 +131,20 @@ def main() -> int:
              "record, so the change is part of the record instead of an "
              "unexplained discontinuity in it",
     )
+    ap.add_argument(
+        "--data",
+        metavar="JSON",
+        help="Optional structured data for a --methodology entry, as a JSON "
+             "object string (e.g. '{\"criteria\": {\"min_calls_per_month\": 4, "
+             "\"sustained_days\": 90, \"graduation_n\": 30}}'). Stored under "
+             "payload[\"data\"] and hashed with everything else. Only valid "
+             "alongside --methodology.",
+    )
     args = ap.parse_args()
+
+    if args.data and not args.methodology:
+        print("error: --data is only valid alongside --methodology", file=sys.stderr)
+        return 2
 
     if args.methodology:
         payload = {
@@ -139,6 +152,12 @@ def main() -> int:
             "description": args.methodology,
             "changed_at_utc": datetime.now(timezone.utc).isoformat(),
         }
+        if args.data:
+            try:
+                payload["data"] = json.loads(args.data)
+            except json.JSONDecodeError as exc:
+                print(f"error: --data is not valid JSON: {exc}", file=sys.stderr)
+                return 2
     elif args.failed:
         payload = {
             "type": "PIPELINE_FAILURE",

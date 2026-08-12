@@ -28,15 +28,21 @@ OTS = ROOT / "reports" / "ots"
 AUDIT = ROOT / "reports" / "audit"
 WATCHDOG_LOG = ROOT / "nightshift" / "logs" / "watchdog.log"
 
-# Pre-registered product criteria -- chain entry
-# 3c2ee64d54852366c9149c01a4eaa11f20c54fe8a63d455aaa4510b535e194bd
-# (2026-08-11, "PRE-REGISTRATION OF PRODUCT AND DESIGN CRITERIA"). Free-form
-# prose in that entry's description, not structured data, so the numbers
-# below are transcribed by hand, not parsed -- verify against the entry
-# itself if in doubt, don't trust this comment either.
-CRITERIA_MIN_CALLS_PER_MONTH = 4
-CRITERIA_SUSTAINED_DAYS = 90
-CRITERIA_GRADUATION_N = 30
+# Pre-registered product criteria. Prefer the most recent chain entry
+# carrying payload.data.criteria (published via
+# publish_chain.py --methodology "..." --data '{"criteria": {...}}');
+# the three constants below are the fallback, used only if no such entry
+# exists yet, or per-key if a found entry doesn't carry all three.
+# PRE_REGISTRATION_ENTRY_HASH (2026-08-11, "PRE-REGISTRATION OF PRODUCT
+# AND DESIGN CRITERIA") pre-registered these as free prose in its
+# description, not structured data, and the chain is append-only -- that
+# entry can't be edited to add the structured field retroactively -- so
+# this fallback stays live until the criteria are re-published under a
+# new entry.
+PRE_REGISTRATION_ENTRY_HASH = "3c2ee64d54852366c9149c01a4eaa11f20c54fe8a63d455aaa4510b535e194bd"
+CRITERIA_FALLBACK_MIN_CALLS_PER_MONTH = 4
+CRITERIA_FALLBACK_SUSTAINED_DAYS = 90
+CRITERIA_FALLBACK_GRADUATION_N = 30
 
 
 def _git(*args):
@@ -112,9 +118,61 @@ def main():
     print(f"5. outreach touches sent/week . NOT TRACKED HERE"
           f"  <- the one that lags; check the Airtable board")
 
+    # Structured criteria override: most recent METHODOLOGY_CHANGE entry
+    # carrying payload.data.criteria wins, walked newest-first so the
+    # first match is the most recent. Resolution is per-key, not
+    # all-or-nothing -- a found entry missing one of the three fields
+    # falls back to the hardcoded default for THAT field only, and
+    # criteria_note says so explicitly rather than implying full
+    # chain-sourcing when it isn't. A note that claims a chain source
+    # while some values are still hardcoded is exactly the kind of drift
+    # this override exists to remove, so it must never happen silently.
+    criteria_entry, criteria_data = None, None
+    for e in reversed(entries):
+        d = e.get("payload", {}).get("data")
+        if isinstance(d, dict) and d.get("criteria"):
+            criteria_entry, criteria_data = e, d["criteria"]
+            break
+
+    criteria_defaults = {
+        "min_calls_per_month": CRITERIA_FALLBACK_MIN_CALLS_PER_MONTH,
+        "sustained_days": CRITERIA_FALLBACK_SUSTAINED_DAYS,
+        "graduation_n": CRITERIA_FALLBACK_GRADUATION_N,
+    }
+    if criteria_entry is not None:
+        from_chain, from_fallback, resolved = [], [], {}
+        for key, default in criteria_defaults.items():
+            if key in criteria_data:
+                resolved[key] = criteria_data[key]
+                from_chain.append(key)
+            else:
+                resolved[key] = default
+                from_fallback.append(key)
+        min_calls_per_month = resolved["min_calls_per_month"]
+        sustained_days = resolved["sustained_days"]
+        graduation_n = resolved["graduation_n"]
+        entry_ref = (f"{criteria_entry.get('entry_hash','?')[:8]}… "
+                     f"({criteria_entry.get('published_at_utc','?')[:10]})")
+        if from_fallback:
+            criteria_note = (f"criteria source: PARTIAL -- chain entry {entry_ref} "
+                              f"supplies {', '.join(from_chain)}; "
+                              f"{', '.join(from_fallback)} still hardcoded fallback")
+        else:
+            criteria_note = f"criteria source: chain entry {entry_ref} (all three fields)"
+    else:
+        min_calls_per_month = CRITERIA_FALLBACK_MIN_CALLS_PER_MONTH
+        sustained_days = CRITERIA_FALLBACK_SUSTAINED_DAYS
+        graduation_n = CRITERIA_FALLBACK_GRADUATION_N
+        criteria_note = (f"criteria source: HARDCODED FALLBACK -- no chain entry "
+                          f"carries payload.data.criteria yet (pre-registration "
+                          f"entry {PRE_REGISTRATION_ENTRY_HASH[:8]}… predates "
+                          f"structured data and can't be edited; re-publish under "
+                          f"--data to override this fallback)")
+
     print()
-    print(f"── pre-registered criteria (chain entry 3c2ee64d…, 2026-08-11) ──")
-    cutoff_90d = (datetime.now(timezone.utc).date() - timedelta(days=CRITERIA_SUSTAINED_DAYS)).isoformat()
+    print(f"── pre-registered criteria ──")
+    print(f"   {criteria_note}")
+    cutoff_90d = (datetime.now(timezone.utc).date() - timedelta(days=sustained_days)).isoformat()
     # Frequency measures how often the engine PRODUCES a call, not how many
     # produced usable evidence -- a call later voided for bad exchange data
     # was still a call made, so VOID rows count here (unlike distinct_calls
@@ -128,18 +186,18 @@ def main():
                             if p.get("direction") in ("long", "short")
                             and p.get("status") == "VOID"
                             and (p.get("cycle_date") or "") >= cutoff_90d}
-    calls_per_month = len(recent_distinct_calls) / CRITERIA_SUSTAINED_DAYS * 30
-    print(f"   graduation gate ............. {len(distinct_calls)} of {CRITERIA_GRADUATION_N}"
+    calls_per_month = len(recent_distinct_calls) / sustained_days * 30
+    print(f"   graduation gate ............. {len(distinct_calls)} of {graduation_n}"
           f" distinct labeled calls (criteria two and three need this)")
-    print(f"   one — frequency .............. threshold >={CRITERIA_MIN_CALLS_PER_MONTH}/month"
-          f" sustained {CRITERIA_SUSTAINED_DAYS}d"
-          f"   actual {len(recent_distinct_calls)} calls in trailing {CRITERIA_SUSTAINED_DAYS}d"
+    print(f"   one — frequency .............. threshold >={min_calls_per_month}/month"
+          f" sustained {sustained_days}d"
+          f"   actual {len(recent_distinct_calls)} calls in trailing {sustained_days}d"
           f" = {calls_per_month:.2f}/month"
           f"  ({len(recent_voided_calls)} of those later voided)")
     print(f"   two — edge ................... mean 7d return vs buy-and-hold"
-          f"   not yet computable — needs {CRITERIA_GRADUATION_N}, have {len(distinct_calls)}")
+          f"   not yet computable — needs {graduation_n}, have {len(distinct_calls)}")
     print(f"   three — meta-model ........... ranking vs random on held-out rows"
-          f"   not yet computable — needs {CRITERIA_GRADUATION_N}, have {len(distinct_calls)}")
+          f"   not yet computable — needs {graduation_n}, have {len(distinct_calls)}")
 
     print()
     print(f"   entry types: {dict(types)}")
