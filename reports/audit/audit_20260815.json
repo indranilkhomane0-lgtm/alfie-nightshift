@@ -1,0 +1,177 @@
+{
+  "checks": [
+    {
+      "detail": {
+        "gap_dates": [],
+        "range": [
+          "2026-07-18",
+          "2026-08-14"
+        ]
+      },
+      "name": "calendar_coverage",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "cutoff_index": 12,
+        "missing_after_cutoff": [],
+        "unexpected_before_cutoff": []
+      },
+      "name": "code_version_presence",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "missing_entirely": [],
+        "orphan_hash_no_ots": [],
+        "ots_binary_available": true,
+        "pending_past_grace": [
+          "e3c7bf755dc67c9d9067652b7dd2d98a47e3bb2205b64ad62191b6558cf25858",
+          "a8d79b5fa234d5cebb34c9c263c6d64d917a5905162a95cadc1ce6cb6f979c91",
+          "d21d83d47c372c95de60969632f73092a7670334cfa334adad7ede6805650e56",
+          "cce389b7d4a235ababfc5199a42a548c5d9e969b8792f01fdac589e694f052c9",
+          "ec7596da6b81707b5170bfeecc792d9d7223c8f9b75e7c708c9eae578dc08743",
+          "d737621018deee4065f791e81771f32e41b4c29ec37e949806be22f6d93dfa4a",
+          "a2723289a9a497536b7062d1731cfeec7c15e97f8c9c9fe687837ca1cc39536b",
+          "9d7b1adf4212f944305386898a4956c2b64058ff36796111f3b76bc056539efa",
+          "897b3befc398431ec69f96f24f273194f7af881b11d6954bd860b9057a8ca7d6",
+          "5b83d3e2499d7692fa1a6ded4eed505c9892aca2db6c56be32a62835a1d91c95"
+        ]
+      },
+      "name": "ots_proof_coverage",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "flagged": [
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/wfo_engine.py",
+            "lineno": 151,
+            "name": "objective"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 149,
+            "name": "feature_importances"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 154,
+            "name": "top_features"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 157,
+            "name": "corpus_health"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/db.py",
+            "lineno": 175,
+            "name": "get_labelled_corpus"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 28,
+            "name": "register"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 33,
+            "name": "add_return"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/derivatives.py",
+            "lineno": 108,
+            "name": "get_all_signals"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 5,
+            "name": "_safe_ret"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 15,
+            "name": "momentum_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 31,
+            "name": "momentum_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 37,
+            "name": "mean_rev_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 60,
+            "name": "mean_rev_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 67,
+            "name": "relative_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 90,
+            "name": "relative_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 96,
+            "name": "breakout_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 150,
+            "name": "breakout_params"
+          }
+        ],
+        "known_limitation": "AST name-matching only, not type-resolved: dict dispatch, getattr, and decorator-wrapped calls will not be seen as calls and can produce false positives here."
+      },
+      "name": "dead_code_reachability",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "constant_columns": [],
+        "note": "constant-column check catches frozen placeholders, not varying-but-mislabeled features",
+        "sidecar_flags": []
+      },
+      "name": "feature_cols_populated",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "gated_but_unimplemented": [],
+        "implemented_but_never_gated": []
+      },
+      "name": "gate_registry_match",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "decreases": []
+      },
+      "name": "predictions_row_count_monotonic",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "broken_verify_commands": [],
+        "constant_mismatches": [],
+        "known_limitation": "Path extraction is one regex over free text/shell/XML, not a real markdown/shell/plist parser -- URLs and '...'-truncated example hashes are explicitly excluded, everything else matching word/word.ext is checked. Numeric-constant checking only recognises the literal `NAME=NUMBER` citation style.",
+        "missing_paths": []
+      },
+      "name": "doc_reference_integrity",
+      "status": "PASS"
+    }
+  ],
+  "date_utc": "20260815",
+  "generated_at_utc": "2026-08-15T00:00:22.686600+00:00",
+  "known_limitations": "A passing audit means 'no known regression shape reappeared,' not 'the pipeline is correct.' See module docstring: this checklist cannot see the WFO look-ahead class of bug (reachability != correctness), mislabeled-but-varying features (populated != meaningful), stub implementations (symbol existence != behavior), or anything outside nightshift/.",
+  "overall_status": "FAIL"
+}
