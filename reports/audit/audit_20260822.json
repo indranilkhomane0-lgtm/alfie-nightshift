@@ -1,0 +1,197 @@
+{
+  "checks": [
+    {
+      "detail": {
+        "gap_dates": [],
+        "range": [
+          "2026-07-18",
+          "2026-08-21"
+        ]
+      },
+      "name": "calendar_coverage",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "cutoff_index": 12,
+        "missing_after_cutoff": [],
+        "unexpected_before_cutoff": []
+      },
+      "name": "code_version_presence",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "missing_entirely": [],
+        "orphan_hash_no_ots": [],
+        "ots_binary_available": true,
+        "pending_past_grace": [
+          "7117f91029c5aeeeda82a0ecdbbaccdb0482010c75dd6687e156c1315d40e7dc",
+          "fb3ead93be7d9718652b0c733cfcbd611a54955b65b3b2310d09930ea912c9df",
+          "7db43107d3d048e4f8b2fab1200a1beacbe591e63e1b6099f8c561a286f43055",
+          "890107fb2c09f1edfc71329164eb11a4f3d527156d5afcec326d2db7e1a16a08",
+          "243a83ca30532054ba77c311bfd70b3827f69039e7c0d733582dc4c381d107c1",
+          "a9230616889577f5171514108cf7a2a2bc086828cdf185f7a120b1dc07d481c2",
+          "759ffcf28e5680718dc7b425447f5aed153d6838ad7df61a1cc4bfc232c57d5e",
+          "124616fb69299d36f16a805132f9c374dc84d554082c0f711185a70541228a10",
+          "9436b300a34c6fab555afbd83f6035274830d3f131f50defbd3d9040290d3242",
+          "3b646aa82a56b711bfe156132f2ff05817cdec1c6241b8844bdfa8590876514d",
+          "570cc6c017c9600714ba80600536fdb0e13e48a53e0f5bcb1bbe9e91fd2f5b96",
+          "982a2eae73e230ef2f56a2c03fa68c98762ec020421093598989435d60e63d58",
+          "5fc02e51e8c004a7e0a6d024c5636bdcd1d6980f0ebb5a6fea6da9da78eff0d2",
+          "225ddc51787a9366408b3d37b7076ad5fc3c4ed3fd4601b2a2c4cab603856732",
+          "e7d56111d411a3dd321c351b7b69ed75032d6ac52ec3b06cffe36c4acbc2d6e6",
+          "3fdad24d6ed7dfc960ed07cbc9f358e1db4e9de1b6adbb7c16a01d910b3ba29d",
+          "d673d9e5f09134ab4c68d83587c4efb65670582bf2073da831693c46e225c394",
+          "8c37a9e36b8e1d61c534aaa71feb425d3f58e56666f3d6ddcfc9a64d1e142ef9",
+          "68f93867aed703f4c453d57af2f111e82c973c1d8ef9d48440b8ac7fa294fea5",
+          "2a414e55ac5cb891b44911f2e7205b51ac895fba67d561040713d1e256c64f96",
+          "3420f58ceefcad75bd214474530254e10dd6f315e9845a519e337e072270f17b",
+          "be546dbf0323f14a0a885b45960988ed9620dadbf9d5f2271fcd3cb4423eefe0",
+          "264237ce6f2006e8b1388ff6a03a1a8b332107af82b85e8d7183b1b408f8cc8b",
+          "075ae03387d58149ac8ecd699961ad751e6fa9a8d4a12fffc24fd27794161006",
+          "3ccc69067c70aa4ae4aa2f653dcb11e0d3c663975656fee741ee1026c9b4ff00",
+          "6f0f1ed57749f8c6631b0054147b6bb7b0a03191b2952d07a21bc5660c735be5",
+          "e5c7c79a08e979a60aa307af1ebade0b23116b0cc276864db888c11291baf28f",
+          "50ffcc49a8161fbec035f6b2d76367aac460418e08a1f678170b5dd44828a759",
+          "9fdd7ba564a82f52224db6d4dc6c51956d3eae043ab9ab3b118c40ada7ba2a78",
+          "a74802efbf23101327b11d1ea4e1c260c940b090fdba45b0ae2efb4600e30255"
+        ]
+      },
+      "name": "ots_proof_coverage",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "flagged": [
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/wfo_engine.py",
+            "lineno": 151,
+            "name": "objective"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 149,
+            "name": "feature_importances"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 154,
+            "name": "top_features"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 157,
+            "name": "corpus_health"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/db.py",
+            "lineno": 175,
+            "name": "get_labelled_corpus"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 28,
+            "name": "register"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 33,
+            "name": "add_return"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/derivatives.py",
+            "lineno": 108,
+            "name": "get_all_signals"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 5,
+            "name": "_safe_ret"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 15,
+            "name": "momentum_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 31,
+            "name": "momentum_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 37,
+            "name": "mean_rev_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 60,
+            "name": "mean_rev_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 67,
+            "name": "relative_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 90,
+            "name": "relative_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 96,
+            "name": "breakout_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 150,
+            "name": "breakout_params"
+          }
+        ],
+        "known_limitation": "AST name-matching only, not type-resolved: dict dispatch, getattr, and decorator-wrapped calls will not be seen as calls and can produce false positives here."
+      },
+      "name": "dead_code_reachability",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "constant_columns": [],
+        "note": "constant-column check catches frozen placeholders, not varying-but-mislabeled features",
+        "sidecar_flags": []
+      },
+      "name": "feature_cols_populated",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "gated_but_unimplemented": [],
+        "implemented_but_never_gated": []
+      },
+      "name": "gate_registry_match",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "decreases": []
+      },
+      "name": "predictions_row_count_monotonic",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "broken_verify_commands": [],
+        "constant_mismatches": [],
+        "known_limitation": "Path extraction is one regex over free text/shell/XML, not a real markdown/shell/plist parser -- URLs and '...'-truncated example hashes are explicitly excluded, everything else matching word/word.ext is checked. Numeric-constant checking only recognises the literal `NAME=NUMBER` citation style.",
+        "missing_paths": []
+      },
+      "name": "doc_reference_integrity",
+      "status": "PASS"
+    }
+  ],
+  "date_utc": "20260822",
+  "generated_at_utc": "2026-08-22T00:00:28.806350+00:00",
+  "known_limitations": "A passing audit means 'no known regression shape reappeared,' not 'the pipeline is correct.' See module docstring: this checklist cannot see the WFO look-ahead class of bug (reachability != correctness), mislabeled-but-varying features (populated != meaningful), stub implementations (symbol existence != behavior), or anything outside nightshift/.",
+  "overall_status": "FAIL"
+}
