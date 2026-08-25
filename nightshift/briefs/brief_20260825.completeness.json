@@ -1,0 +1,30 @@
+{
+  "derivatives": {
+    "BTC/USDT": {
+      "btc_dominance_delta": false,
+      "exchange_flow_7d": false,
+      "funding_rate": true,
+      "longshort_ratio": true,
+      "oi_trend_7d": true
+    },
+    "ETH/USDT": {
+      "btc_dominance_delta": false,
+      "exchange_flow_7d": false,
+      "funding_rate": true,
+      "longshort_ratio": true,
+      "oi_trend_7d": true
+    },
+    "SOL/USDT": {
+      "btc_dominance_delta": false,
+      "exchange_flow_7d": false,
+      "funding_rate": true,
+      "longshort_ratio": true,
+      "oi_trend_7d": true
+    }
+  },
+  "price": {
+    "BTC/USDT": true,
+    "ETH/USDT": true,
+    "SOL/USDT": true
+  }
+}
