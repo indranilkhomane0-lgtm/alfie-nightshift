@@ -1,0 +1,46 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20260830  ·  2026-08-30 00:01 UTC  ·  22s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  1 — HIGH-VOL BULL  P=100%  days_in=6  trans_p=2%
+  Size mult: 75%  Vol target: 10% ann
+  Eligible: ['momentum', 'mean_rev', 'relative']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 0 labelled rows  STANDBY — need 30 rows
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] BTC/USDT_momentum_80702ccdd546
+      WFO  Sharpe=2.94  Sortino=4.28  MaxDD=-2.8%
+      GT=1.961  stability_σ=n/a
+      MC   G1=2.94 G2=2.56 G3=2.04 G4=2.94 G5_sens=0.29
+      META [FALLBACK] corpus too small — using GT-Score=8.711
+      Params: {"fast_ma": 5, "slow_ma": 26, "rsi_entry": 55}
+
+  [2] ETH/USDT_mean_rev_d5a5e4fea4a1
+      WFO  Sharpe=3.60  Sortino=0.00  MaxDD=-0.0%
+      GT=8.711  stability_σ=n/a
+      MC   G1=3.60 G2=3.19 G3=3.46 G4=3.60 G5_sens=0.64
+      META [FALLBACK] corpus too small — using GT-Score=1.969
+      Params: {"rsi_low": 19, "rsi_high": 68, "rsi_period": 13, "max_hold_days": 2}
+
+  [3] SOL/USDT_mean_rev_cd4f1c21bd37
+      WFO  Sharpe=3.01  Sortino=4.25  MaxDD=-4.0%
+      GT=1.969  stability_σ=n/a
+      MC   G1=3.01 G2=2.74 G3=2.65 G4=3.01 G5_sens=0.60
+      META [FALLBACK] corpus too small — using GT-Score=1.961
+      Params: {"rsi_low": 19, "rsi_high": 72, "rsi_period": 12, "max_hold_days": 6}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
