@@ -17,9 +17,12 @@ chain file) is caught and logged, never raised. This script always exits
 
 A same-night proof is only a *pending* calendar receipt; full Bitcoin
 confirmation typically takes hours. Each run also opportunistically
-upgrades prior still-pending proofs (oldest first, before tonight's own
-stamp, under a bounded total time budget), so proofs become fully
-verifiable over subsequent nights without a separate cron job.
+upgrades prior still-pending proofs (oldest first, after tonight's own
+stamping is done, under its own bounded time budget), so proofs become
+fully verifiable over subsequent nights without a separate cron job.
+Stamping runs first and gets first claim on the run's time: a missing
+proof is worse than a pending upgrade, and upgrades keep getting retried
+on later nights regardless.
 
 Usage (called by run_and_publish.sh after nightshift/publish_chain.py):
     python3 nightshift/anchor_ots.py
@@ -130,10 +133,16 @@ def ssl_cert_env() -> dict:
 
 
 def stamp(ots_bin: str, hash_file: Path) -> bool:
-    result = subprocess.run(
-        [ots_bin, "stamp", "--timeout", str(STAMP_TIMEOUT_S), str(hash_file)],
-        capture_output=True, text=True, env=ssl_cert_env(), timeout=STAMP_TIMEOUT_S + 10,
-    )
+    try:
+        result = subprocess.run(
+            [ots_bin, "stamp", "--timeout", str(STAMP_TIMEOUT_S), str(hash_file)],
+            capture_output=True, text=True, env=ssl_cert_env(), timeout=STAMP_TIMEOUT_S + 10,
+        )
+    except Exception as exc:
+        # Same treatment as the upgrade path: a hung calendar server must
+        # not abort the sweep -- log it, skip this entry, move on.
+        log(f"ALERT — ots stamp raised {exc!r} on {hash_file.name} -- skipping")
+        return False
     if result.returncode != 0:
         log(f"ALERT — ots stamp failed (rc={result.returncode}): {result.stderr.strip()[-300:]}")
         return False
@@ -144,10 +153,12 @@ def opportunistic_upgrade(ots_bin: str) -> None:
     """Try to complete every still-pending proof, oldest first, under a
     single bounded total time budget. Best-effort -- a proof staying
     pending is normal (Bitcoin confirmation lags) and must never be
-    treated as an error. Must run before tonight's own stamp: tonight's
-    proof is always the newest and can never be confirmed yet, so
-    examining newest-first (or stopping after one) would permanently
-    starve every older pending proof."""
+    treated as an error. Runs after tonight's own stamp sweep, on its own
+    budget, so a large backlog of pending upgrades can never eat into the
+    time available for stamping missing proofs. Examining oldest-first
+    means tonight's own (necessarily still-pending) proof, being newest,
+    is tried last and simply rolls over to a later run if the budget
+    runs out first -- it couldn't have confirmed yet anyway."""
     candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime)
     start = time.monotonic()
     for ots_file in candidates:
@@ -192,49 +203,49 @@ def main() -> int:
 
         OTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Upgrade older pending proofs before tonight's own stamp exists --
-        # otherwise tonight's (necessarily still-pending) proof would be
-        # the newest and this would waste the whole run on something that
-        # cannot possibly be confirmed yet.
-        opportunistic_upgrade(ots_bin)
-
         # Stamp EVERY unanchored entry, oldest first -- not just the newest.
         # See unanchored_entries() for why the old newest-only behaviour left
-        # entries permanently without a proof.
+        # entries permanently without a proof. This runs before the upgrade
+        # sweep and on its own budget: missing proofs matter more than
+        # pending upgrades, so stamping gets first claim on the run's time
+        # instead of whatever upgrade left behind.
         pending = unanchored_entries()
         if not pending:
             log("all entries since anchoring start already have a proof")
-            return 0
+        else:
+            log(f"{len(pending)} entry(s) without a proof -- stamping oldest first")
+            start = time.monotonic()
+            consecutive_failures = 0
+            stamped = 0
+            for entry_hash in pending:
+                if time.monotonic() - start > STAMP_TOTAL_BUDGET_S:
+                    log(f"stamp sweep hit {STAMP_TOTAL_BUDGET_S}s budget -- "
+                        f"{len(pending) - stamped} still unanchored, retried next run")
+                    break
+                if consecutive_failures >= STAMP_MAX_CONSECUTIVE_FAILURES:
+                    log(f"{consecutive_failures} consecutive stamp failures "
+                        f"(calendars likely unreachable) -- stopping for tonight, "
+                        f"{len(pending) - stamped} still unanchored")
+                    break
 
-        log(f"{len(pending)} entry(s) without a proof -- stamping oldest first")
-        start = time.monotonic()
-        consecutive_failures = 0
-        stamped = 0
-        for entry_hash in pending:
-            if time.monotonic() - start > STAMP_TOTAL_BUDGET_S:
-                log(f"stamp sweep hit {STAMP_TOTAL_BUDGET_S}s budget -- "
-                    f"{len(pending) - stamped} still unanchored, retried next run")
-                break
-            if consecutive_failures >= STAMP_MAX_CONSECUTIVE_FAILURES:
-                log(f"{consecutive_failures} consecutive stamp failures "
-                    f"(calendars likely unreachable) -- stopping for tonight, "
-                    f"{len(pending) - stamped} still unanchored")
-                break
+                hash_file = OTS_DIR / f"{entry_hash}.hash"
+                hash_file.write_text(entry_hash)
+                if stamp(ots_bin, hash_file):
+                    log(f"stamped entry {entry_hash[:16]}… (pending Bitcoin confirmation)")
+                    stamped += 1
+                    consecutive_failures = 0
+                else:
+                    # Never leave a .hash without a .ots -- that combination is
+                    # the crash-mid-stamp signature self_audit check 3 flags, and
+                    # nothing else ever cleans it up.
+                    hash_file.unlink(missing_ok=True)
+                    consecutive_failures += 1
 
-            hash_file = OTS_DIR / f"{entry_hash}.hash"
-            hash_file.write_text(entry_hash)
-            if stamp(ots_bin, hash_file):
-                log(f"stamped entry {entry_hash[:16]}… (pending Bitcoin confirmation)")
-                stamped += 1
-                consecutive_failures = 0
-            else:
-                # Never leave a .hash without a .ots -- that combination is
-                # the crash-mid-stamp signature self_audit check 3 flags, and
-                # nothing else ever cleans it up.
-                hash_file.unlink(missing_ok=True)
-                consecutive_failures += 1
+            log(f"stamp sweep done: {stamped}/{len(pending)} newly anchored")
 
-        log(f"stamp sweep done: {stamped}/{len(pending)} newly anchored")
+        # Upgrade older pending proofs after tonight's stamping is done, on
+        # its own separate budget -- see opportunistic_upgrade() docstring.
+        opportunistic_upgrade(ots_bin)
         return 0
     except Exception as exc:
         # Anchoring must never break the nightly run -- log and move on.
