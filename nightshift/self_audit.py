@@ -271,12 +271,24 @@ def check_ots_proof_coverage(entries: list[dict]) -> dict:
     crash-mid-stamp signature the 701fe7d2/ceb08cda pair already
     demonstrated). .ots pending past OTS_GRACE_HOURS is flagged; within
     the window is fine. Neither file existing is only fine if the entry
-    is younger than one anchoring cycle."""
+    is younger than one anchoring cycle.
+
+    no_proof_count is the plain headline number: every post-anchoring-start
+    entry with no .ots file, full stop -- no grace period, no PASS/FAIL
+    gating. The 08-31/09-01 stamping gap (anchor_ots.py hitting an
+    unhandled TimeoutExpired and an upgrade-sweep-starves-stamping bug)
+    went two days before anyone noticed, because the only record of it was
+    anchor_ots.log -- a file nobody was reading. orphan_hash_no_ots and
+    missing_entirely below still gate PASS/FAIL correctly (they're grace-
+    aware, by design, so a young in-flight entry doesn't false-positive);
+    no_proof_count exists so the raw count is visible in the audit output
+    even on a night where every one of those still falls inside grace."""
     finding = {
         "name": "ots_proof_coverage", "status": "PASS",
         "detail": {
             "orphan_hash_no_ots": [], "pending_past_grace": [],
             "missing_entirely": [], "ots_binary_available": False,
+            "no_proof_count": 0,
         },
     }
     ots_bin = _find_ots_binary()
@@ -296,15 +308,18 @@ def check_ots_proof_coverage(entries: list[dict]) -> dict:
             continue
         hash_file = OTS_DIR / f"{h}.hash"
         ots_file = OTS_DIR / f"{h}.hash.ots"
+        has_proof = ots_file.exists()
+        if not has_proof:
+            finding["detail"]["no_proof_count"] += 1
         try:
             published = datetime.fromisoformat(e["published_at_utc"])
         except Exception:
             published = now
         age_hours = (now - published).total_seconds() / 3600
 
-        if hash_file.exists() and not ots_file.exists():
+        if hash_file.exists() and not has_proof:
             finding["detail"]["orphan_hash_no_ots"].append(h)
-        elif hash_file.exists() and ots_file.exists() and ots_bin:
+        elif hash_file.exists() and has_proof and ots_bin:
             confirmed = _ots_confirmed(ots_bin, ots_file)
             # Grace runs from when the PROOF was stamped, not when the entry
             # was published. A backfilled proof on an old entry is stamped
@@ -315,7 +330,7 @@ def check_ots_proof_coverage(entries: list[dict]) -> dict:
             proof_age_h = (now.timestamp() - ots_file.stat().st_mtime) / 3600
             if confirmed is False and proof_age_h > OTS_GRACE_HOURS:
                 finding["detail"]["pending_past_grace"].append(h)
-        elif not hash_file.exists() and age_hours > OTS_GRACE_HOURS:
+        elif not hash_file.exists() and not has_proof and age_hours > OTS_GRACE_HOURS:
             finding["detail"]["missing_entirely"].append(h)
 
     if any(v for k, v in finding["detail"].items() if isinstance(v, list) and v):
@@ -784,6 +799,14 @@ def main() -> int:
         summary = {c["name"]: {"status": c["status"],
                                 "finding_count": _finding_count(c)} for c in checks}
 
+        # Headline number, not buried in a per-check detail{} a reader has to
+        # know to open: how many post-anchoring-start chain entries have no
+        # .ots proof right now, full stop. This is what would have surfaced
+        # the 08-31/09-01 stamping gap on night one instead of night three --
+        # anchor_ots.log recorded the same failures, but nobody reads it.
+        ots_check = next(c for c in checks if c["name"] == "ots_proof_coverage")
+        unanchored = ots_check["detail"].get("no_proof_count", 0)
+
         try:
             sys.path.insert(0, str(ROOT))
             from nightshift.publish_chain import append_entry
@@ -791,6 +814,7 @@ def main() -> int:
                 "type": "AUDIT_RESULT",
                 "status": overall,
                 "checks": summary,
+                "entries_without_ots_proof": unanchored,
                 "report_file": report_path.name,
                 "report_sha256": report_sha256,
             })
@@ -800,6 +824,8 @@ def main() -> int:
                 f"{traceback.format_exc()}")
 
         print(f"self_audit: {overall} -- {report_path}")
+        print(f"self_audit: {unanchored} entry(s) since {OTS_ANCHORING_START} "
+              f"have no .ots proof")
         return 0
 
     except Exception as exc:

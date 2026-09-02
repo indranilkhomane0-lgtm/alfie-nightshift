@@ -91,6 +91,14 @@ block explorer it can query, so it depends on infrastructure outside this
 repo. It is a stronger claim than the hash chain alone, not a replacement
 for it.
 
+**Two entries were anchored late.** The entries published 2026-08-31 and
+2026-09-01 were not stamped same-night: a network outage prevented
+anchoring, and the failure went unhandled and unnoticed until the backlog
+was stamped 2026-09-01 23:30 IST. Their proofs establish that those
+entries existed before that later anchor time, not before their original
+publication — for those two entries specifically, the hash chain alone is
+what backs the original publication date.
+
 ## Predictions are stamped before the market moves
 
 nightshift/stamp_prediction.py writes a concrete, gradeable claim to
