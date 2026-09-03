@@ -1,0 +1,190 @@
+{
+  "checks": [
+    {
+      "detail": {
+        "gap_dates": [],
+        "range": [
+          "2026-07-18",
+          "2026-09-02"
+        ]
+      },
+      "name": "calendar_coverage",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "cutoff_index": 12,
+        "missing_after_cutoff": [],
+        "unexpected_before_cutoff": []
+      },
+      "name": "code_version_presence",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "missing_entirely": [],
+        "no_proof_count": 0,
+        "orphan_hash_no_ots": [],
+        "ots_binary_available": true,
+        "pending_past_grace": [
+          "0b4035d0f823e1ee4626a0da2981d788c9604315d5a7b8ecd04b6f467eb848a4",
+          "8db0852c54422c9d960f2c0f3d75b5aee32ed03c492accdd3ff0f10b1eae96fb",
+          "56030582262c7335d5faecc272de9c0ccbbfc153e5885860e04573910ccfe8de",
+          "77b5cfffc367977ab0f764bb88dfeb93beffea90421404f82aaedf4d9b6bcaad",
+          "eb8fe122c450c5cd9f5ebcd2c76e3225c9efbf4effbc614092dc67695824e8c1",
+          "3701ae7ba3961ab0e818d09d8f9a48ade50778e44910b9a72c949ce6c8ae2fc3",
+          "81330d8db4575de848c5778a9b4efe87127f6261d5ad14d95b68df023d822016",
+          "a0f1426974f8dbbb3707c3643871ecb3997a420a973c54abd9b1bebe4dd49d47",
+          "cb8466153a19b4474e6b0cde691aa370cfbb7365b5a04529cd2431e4b9159125",
+          "9e667d9c66e9a647168509d088f9431ff37705105511750a0291f0a95619703c",
+          "1471b360910293ca0c9099d752b8bdfe31d6fce10684bef3c55d81f57019ccdf",
+          "840b86c9ee8693c6113fb87180c88f152d16fa986dca659afb13322bcd1ac306",
+          "e19ac146f81608826f552054073144bdda3511d8f55378670b746f5c354bfeaf",
+          "04a7cb6a598ab7e92ea17423fc4aadef9e44cd354de33f18b19445a8ab8a9082",
+          "f78173879b5b7cb288a92ad0c2154fea2c095942bd641ec0d3dd21aa66b204a8",
+          "cca42aed44b421724484b6c3eba0e6f4451c7c6193ecada970022d316a7f77a6",
+          "ac4b40cc9ff6b1679b21aa8cea8e10b3541de5b3499f947b12dcedadf85a83a6",
+          "63da672249ac4d9fd0f02a60b7f8b4e31243bc444b15b764dea7687ac3734b03",
+          "397047df26e1ff5d9e0d780b621cc008f284ab7a88d4d2ffdee37235ec7113d4",
+          "70d5ebd2b561544450caefaa20db3a25c4f9020e4f8a4c86503533c07d34b793",
+          "8a6ec1feccc6a54f3f1967c9e7788f7d7f53584bf2e11fbf32be211fc236d7e1",
+          "00935281051506db9aace6d1048781111cfd107258139aa03d68e53c2803e323"
+        ]
+      },
+      "name": "ots_proof_coverage",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "flagged": [
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/wfo_engine.py",
+            "lineno": 151,
+            "name": "objective"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 149,
+            "name": "feature_importances"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 154,
+            "name": "top_features"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/meta_model.py",
+            "lineno": 157,
+            "name": "corpus_health"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/db.py",
+            "lineno": 175,
+            "name": "get_labelled_corpus"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 28,
+            "name": "register"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 33,
+            "name": "add_return"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/derivatives.py",
+            "lineno": 108,
+            "name": "get_all_signals"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 5,
+            "name": "_safe_ret"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 15,
+            "name": "momentum_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 31,
+            "name": "momentum_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 37,
+            "name": "mean_rev_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 60,
+            "name": "mean_rev_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 67,
+            "name": "relative_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 90,
+            "name": "relative_params"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 96,
+            "name": "breakout_strategy"
+          },
+          {
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 150,
+            "name": "breakout_params"
+          }
+        ],
+        "known_limitation": "AST name-matching only, not type-resolved: dict dispatch, getattr, and decorator-wrapped calls will not be seen as calls and can produce false positives here."
+      },
+      "name": "dead_code_reachability",
+      "status": "FAIL"
+    },
+    {
+      "detail": {
+        "constant_columns": [],
+        "note": "constant-column check catches frozen placeholders, not varying-but-mislabeled features",
+        "sidecar_flags": []
+      },
+      "name": "feature_cols_populated",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "gated_but_unimplemented": [],
+        "implemented_but_never_gated": []
+      },
+      "name": "gate_registry_match",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "decreases": []
+      },
+      "name": "predictions_row_count_monotonic",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "broken_verify_commands": [],
+        "constant_mismatches": [],
+        "known_limitation": "Path extraction is one regex over free text/shell/XML, not a real markdown/shell/plist parser -- URLs and '...'-truncated example hashes are explicitly excluded, everything else matching word/word.ext is checked. Numeric-constant checking only recognises the literal `NAME=NUMBER` citation style.",
+        "missing_paths": []
+      },
+      "name": "doc_reference_integrity",
+      "status": "PASS"
+    }
+  ],
+  "date_utc": "20260903",
+  "generated_at_utc": "2026-09-03T00:03:55.416161+00:00",
+  "known_limitations": "A passing audit means 'no known regression shape reappeared,' not 'the pipeline is correct.' See module docstring: this checklist cannot see the WFO look-ahead class of bug (reachability != correctness), mislabeled-but-varying features (populated != meaningful), stub implementations (symbol existence != behavior), or anything outside nightshift/.",
+  "overall_status": "FAIL"
+}
