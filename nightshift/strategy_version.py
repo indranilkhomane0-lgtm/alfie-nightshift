@@ -12,8 +12,10 @@ from: see reports/chain.jsonl for both.
 STRATEGY_VERSION_FILES was derived by tracing the real nightly data flow
 in nightshift/cycle.py (NightShiftCycle._stages) from price fetch through
 to the direction/entry_price/settle_date written to predictions.jsonl --
-a file is on this list only if there is a real code path from it to that
-stamped row. Traced in, with the causal link:
+a file is on this list if there is a real code path from it to that
+stamped row, OR (meta_model.py only, see below) if leaving it off would
+let a live wiring change move the system without moving the hash. Traced
+in, with the causal link:
 
   config.py            -- every threshold gating the pipeline (assets,
                            regime eligibility/sizing, WFO search bounds,
@@ -40,17 +42,35 @@ stamped row. Traced in, with the causal link:
                            trials-per-(family,asset) formula, which fn
                            gets called with what args. Glue code is as
                            signal-determining as the logic it calls.
+  meta_model.py           -- added 2026-09-16, NOT for a causal reason --
+                           traced and confirmed non-causal today, same
+                           as when first excluded (see reports/chain.jsonl
+                           for the correction entry naming this reversal):
+                           stamp() still runs on every mc_passed config
+                           regardless of meta-model rank order, and
+                           LiveMonitor.register() is still never called
+                           from cycle.py. Included anyway as a
+                           conservative buffer: the day register() gets
+                           wired to gate deployment on meta-rank, that
+                           wiring change would move what the system
+                           actually does without this file on the list --
+                           and a change that moves the system without
+                           moving the hash is exactly the failure mode
+                           the freeze exists to prevent. Cheaper to carry
+                           one dormant file on the list now than to catch
+                           that gap after it's already live.
 
 Traced out (confirmed non-causal, not merely deprioritised):
-  meta_model.py, live_monitor.py, db.py -- stamp() runs on every
-    mc_passed config regardless of meta-model rank order; LiveMonitor
-    .register() is never called from cycle.py at all (only deregister,
-    in a branch that has never fired -- see README). Model output and
-    live-monitor status reach the brief's display text and DB storage,
-    never the stamped row. Revisit this exclusion the day register()
-    is wired to actually gate deployment on meta-rank -- not before,
-    since hashing dormant code now would bump strategy_version for
-    changes that touch zero calls.
+  live_monitor.py, db.py -- stamp() runs on every mc_passed config
+    regardless of meta-model rank order; LiveMonitor.register() is never
+    called from cycle.py at all (only deregister, in a branch that has
+    never fired -- see README). Live-monitor status reaches the brief's
+    display text and DB storage, never the stamped row. Unlike
+    meta_model.py above, no conservative-buffer case was made for these
+    two -- db.py is pure storage/query plumbing with no architecture of
+    its own to protect, and live_monitor.py's dormant behavior (auto-
+    suspend) has no analogous "gates deployment" future wiring on the
+    table the way meta-model ranking does. Revisit if that changes.
   derivatives.py -- feeds cfg_dicts (funding_rate etc.) for meta-model
     training/DB storage only; entry_signal() never reads it.
   core/bar_calendar.py -- is_utc_daily_bar_complete() only shapes
@@ -83,6 +103,7 @@ STRATEGY_VERSION_FILES = [
     "nightshift/config.py",
     "nightshift/cycle.py",
     "nightshift/mc_gate.py",
+    "nightshift/meta_model.py",
     "nightshift/regime_engine.py",
     "nightshift/stamp_prediction.py",
     "nightshift/strategies/__init__.py",
