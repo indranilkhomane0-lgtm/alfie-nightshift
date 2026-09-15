@@ -14,10 +14,24 @@ Also reports the numbers a win/loss count alone hides: average and median
 return per graded call (separately for wins and losses -- a 47% win rate
 means nothing without knowing what winning and losing are each worth),
 distinct labeled dates against the meta-model's graduation threshold, and
-the same return numbers again restricted to the code version currently
-frozen for the strategy (see FROZEN_CODE_VERSION below) -- that last one
-is the only record that will ever be sellable, since everything before it
-mixes 108 different code versions into one win/loss tally.
+the same return numbers again restricted to a frozen version of the
+strategy -- that slice is the only one that will ever be sellable, since
+everything else mixes over a hundred different code versions into one
+win/loss tally.
+
+Two freezes are tracked, not one -- see FROZEN_CODE_VERSION and
+FROZEN_STRATEGY_VERSION below. The first freeze (chain entry 234) was
+declared against code_version, the git HEAD sha at chain time. That
+conflates strategy changes with every tooling/infra commit made under the
+freeze, silently: an anchoring fix or a logging tweak moves code_version
+exactly as much as a change to signal logic would, so code_version cannot
+actually tell the two apart. The correction (the entry immediately after
+234) repoints the freeze to strategy_version -- a content hash over only
+the files that can change what signal gets emitted (see nightshift/
+strategy_version.py), computed independently of git history. Both
+constants and both filtered sections stay: the code_version slice is real
+history that already happened under those terms and does not get erased
+by the correction; strategy_version is the one that governs going forward.
 """
 
 import hashlib
@@ -29,13 +43,29 @@ from pathlib import Path
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
 GENESIS_HASH = "0" * 64
 
-# Strategy code freeze declared 2026-09-14, chain entry 234
-# (METHODOLOGY_CHANGE): code frozen at this exact code_version (git HEAD
-# sha at chain time), first seen at entry 223. Freeze lifts at 30 distinct
-# labeled dates chained under it -- see that entry for the full terms.
-# Literal, not imported from nightshift.config: this file intentionally
-# has zero repo imports so it keeps running with nothing but the stdlib.
+# Original freeze, declared 2026-09-14 (chain entry 234, METHODOLOGY_CHANGE):
+# code frozen at this exact code_version (git HEAD sha at chain time), first
+# seen at entry 223. Repointed to FROZEN_STRATEGY_VERSION below (see that
+# constant for why) -- kept, filter and all, because the calls chained
+# under this version between entries 224 and the repoint are real history,
+# not an error to be erased. Literal, not imported from nightshift.config:
+# this file intentionally has zero repo imports so it keeps running with
+# nothing but the stdlib.
 FROZEN_CODE_VERSION = "0632a1ddb5e989b1725d2f29bb80b02eb3903b8b"
+
+# Repointed freeze, declared 2026-09-16 (the METHODOLOGY_CHANGE entry
+# immediately following 234): strategy frozen at this exact
+# strategy_version -- a sha256 over the sorted contents of exactly the
+# files that can change what signal gets emitted (nightshift/
+# strategy_version.py: STRATEGY_VERSION_FILES), not the git commit. Unlike
+# code_version, a tooling/infra commit made under the freeze (permitted,
+# disclosed on-chain per the disclose-before-fix rule) does not move this
+# value -- only a change to one of those seven files does. This is the
+# value that actually governs the freeze from the repoint forward. Literal
+# here for the same zero-repo-imports reason as FROZEN_CODE_VERSION --
+# this file does not import nightshift.strategy_version to compute it live,
+# it only compares the stored payload field against this pinned value.
+FROZEN_STRATEGY_VERSION = "a7bdda9ce2654c0d24810b86c27c6e427b9f9aac7258ce98b5b8289acf3e79fb"
 
 # Meta-model graduation gate (nightshift/config.py META_MIN_SAMPLES) --
 # distinct labeled dates, not distinct calls or rows: same-night calls
@@ -72,8 +102,8 @@ def compute_stats(chain_path: Path) -> dict:
     wins = losses = waits = failures = 0
     code_versions = {}  # code_version -> 1-based index of first appearance
     # (asset, direction, cycle_date) -> {"outcome", "return_pct",
-    # "code_version"}. Multiple configs can agree on the same
-    # asset/direction/night -- same entry price, same settle price, same
+    # "code_version", "strategy_version"}. Multiple configs can agree on
+    # the same asset/direction/night -- same entry price, same settle price, same
     # graded outcome -- and each still gets its own chained LABELED_OUTCOME
     # entry. Collapsing on this key is what makes the headline numbers
     # (distinct calls made, and return per call) count calls, not configs
@@ -120,6 +150,14 @@ def compute_stats(chain_path: Path) -> dict:
                     "outcome": outcome,
                     "return_pct": p.get("return_pct"),
                     "code_version": cv,
+                    # .get(), not cv-style default: entries chained before
+                    # the strategy_version repoint simply lack this key.
+                    # None must stay None here -- absent, not inferred as
+                    # "(predates strategy_version)" or coerced to a fake
+                    # match/non-match sentinel. The filter below already
+                    # does the right thing with None (never equals a real
+                    # hash), so no special-casing is needed downstream.
+                    "strategy_version": p.get("strategy_version"),
                 }
                 settle_date = p.get("settle_date")
                 if settle_date:
@@ -128,15 +166,26 @@ def compute_stats(chain_path: Path) -> dict:
     distinct_wins = sum(1 for c in distinct_calls.values() if c["outcome"] == "WIN")
     distinct_losses = sum(1 for c in distinct_calls.values() if c["outcome"] == "LOSS")
 
-    def returns(outcome, frozen=False):
+    def returns(outcome, code_version=None, strategy_version=None):
+        """return_pct list for distinct calls matching outcome, optionally
+        further filtered to an exact code_version and/or strategy_version.
+        A call whose stored value is None (field absent -- predates that
+        field's introduction) can never match a real filter value, so it's
+        excluded rather than counted as a false match -- this is the
+        "absent, not zero, not inferred" rule applied to filtering, not
+        just to display."""
         return [
             c["return_pct"] for c in distinct_calls.values()
             if c["outcome"] == outcome and c["return_pct"] is not None
-            and (not frozen or c["code_version"] == FROZEN_CODE_VERSION)
+            and (code_version is None or c["code_version"] == code_version)
+            and (strategy_version is None or c["strategy_version"] == strategy_version)
         ]
 
     win_returns, loss_returns = returns("WIN"), returns("LOSS")
-    frozen_win_returns, frozen_loss_returns = returns("WIN", frozen=True), returns("LOSS", frozen=True)
+    frozen_cv_win = returns("WIN", code_version=FROZEN_CODE_VERSION)
+    frozen_cv_loss = returns("LOSS", code_version=FROZEN_CODE_VERSION)
+    frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
+    frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
     return {
         "entry_count": i,
@@ -149,9 +198,13 @@ def compute_stats(chain_path: Path) -> dict:
             "win": (*_mean_median(win_returns), len(win_returns)),
             "loss": (*_mean_median(loss_returns), len(loss_returns)),
         },
-        "frozen_return_stats": {
-            "win": (*_mean_median(frozen_win_returns), len(frozen_win_returns)),
-            "loss": (*_mean_median(frozen_loss_returns), len(frozen_loss_returns)),
+        "frozen_code_version_return_stats": {
+            "win": (*_mean_median(frozen_cv_win), len(frozen_cv_win)),
+            "loss": (*_mean_median(frozen_cv_loss), len(frozen_cv_loss)),
+        },
+        "frozen_strategy_version_return_stats": {
+            "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
+            "loss": (*_mean_median(frozen_sv_loss), len(frozen_sv_loss)),
         },
     }
 
@@ -203,10 +256,17 @@ def main() -> int:
         f"distinct labeled dates"
     )
 
-    frs = stats["frozen_return_stats"]
-    print(f"return per graded call (code_version {FROZEN_CODE_VERSION[:12]} only -- post-freeze record):")
-    print(f"  wins:   {_print_return_stats(frs['win'])}")
-    print(f"  losses: {_print_return_stats(frs['loss'])}")
+    fcrs = stats["frozen_code_version_return_stats"]
+    print(f"return per graded call (code_version {FROZEN_CODE_VERSION[:12]} only "
+          f"-- original freeze, pre-repoint; kept for history, see strategy_version below):")
+    print(f"  wins:   {_print_return_stats(fcrs['win'])}")
+    print(f"  losses: {_print_return_stats(fcrs['loss'])}")
+
+    fsrs = stats["frozen_strategy_version_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
+          f"-- repointed freeze, strategy-only hash; the record that's actually sellable):")
+    print(f"  wins:   {_print_return_stats(fsrs['win'])}")
+    print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 
     print(f"code versions on record: {len(stats['code_versions'])}")
     for cv, idx in sorted(stats["code_versions"].items(), key=lambda kv: kv[1]):
