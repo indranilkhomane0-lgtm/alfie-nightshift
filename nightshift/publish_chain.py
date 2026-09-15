@@ -31,6 +31,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PREDICTIONS_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
 GENESIS_HASH = "0" * 64
 
+# This script runs two ways: directly (`python3 nightshift/publish_chain.py`,
+# invoked by run_and_publish.sh with cwd=repo root -- sys.path[0] becomes
+# nightshift/, not REPO_ROOT) and imported (`from nightshift.publish_chain
+# import append_entry`, e.g. self_audit.py, which already puts REPO_ROOT on
+# sys.path before importing). Inserting REPO_ROOT here makes the
+# package-qualified import below resolve either way; a duplicate entry from
+# the second case is harmless.
+sys.path.insert(0, str(REPO_ROOT))
+from nightshift.strategy_version import compute_strategy_version  # noqa: E402
+
 
 def canonical(obj) -> bytes:
     """Deterministic JSON serialization — key order and separators fixed."""
@@ -65,6 +75,25 @@ def _code_version():
         return "unknown", "unknown"
 
 
+@functools.lru_cache(maxsize=1)
+def _strategy_version():
+    """Content hash over the call-determining surface (nightshift/
+    strategy_version.py) -- what actually changed to produce tonight's
+    signal, as opposed to code_version's git HEAD sha, which moves on
+    every commit including ones that touch none of it. Cached per-process
+    like _code_version(): none of the surface files are rewritten mid-run.
+
+    Never raises: a missing/unreadable surface file (corrupted checkout,
+    file moved) must not block the entry from being written -- same
+    fail-safe philosophy as _code_version(). "unknown" here is the same
+    honest placeholder as _code_version()'s "unknown", not a fabricated
+    hash and not an omission."""
+    try:
+        return compute_strategy_version()
+    except Exception:
+        return "unknown"
+
+
 def _predictions_snapshot():
     """(row count, sha256, read_error) for reports/predictions.jsonl at
     the moment this entry is chained -- makes deletion or truncation of
@@ -96,6 +125,7 @@ def append_entry(payload: dict) -> dict:
     payload = {
         **payload,
         "code_version": sha, "code_dirty": dirty,
+        "strategy_version": _strategy_version(),
         "predictions_n": n, "predictions_sha256": preds_sha256,
     }
     if read_error:
