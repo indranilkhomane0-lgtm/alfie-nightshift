@@ -3,11 +3,15 @@
 Alfie Night Shift — dead-man's watchdog.
 
 Runs after the last scheduled nightly-pipeline attempt. Confirms a chain
-entry (brief or PIPELINE_FAILURE) was actually published for tonight, and
-that it reached the remote. If nothing was published at all -- the silent
-gap that existing safeguards don't catch (see run_and_publish.sh's network
-precondition guard, which can exit before ever calling publish_chain.py) --
-it alerts loudly: macOS notification plus a written log line.
+entry was actually published for tonight, and that it reached the remote.
+If nothing was published at all -- the silent gap no other safeguard
+catches, e.g. launchd never firing run_and_publish.sh because the laptop
+was asleep the whole window -- it alerts loudly: macOS notification plus
+a written log line. Also alerts if what got published was itself a
+PIPELINE_FAILURE: present-and-pushed is not the same as successful, and
+until 2026-09-16 a cleanly-chained failure logged identically to a clean
+brief ("published ... pushed to origin") and fired no alert at all -- a
+reader had to already suspect something was wrong to notice.
 
 No network calls, no third-party packages -- stdlib plus the `osascript`
 and `git` binaries already on this Mac.
@@ -140,6 +144,25 @@ def main() -> int:
             )
             log(f"ALERT — {base}{push_error or 'no error output'}")
             alert(f"{base}{_sanitize_for_notification(push_error) or 'no error output'}")
+            return 1
+
+        # A PIPELINE_FAILURE that chained and pushed cleanly used to fall
+        # straight through to the OK log below -- "published, pushed to
+        # origin" is true of it in exactly the same words as a real brief,
+        # so it read as a clean night. Presence and pushedness say nothing
+        # about whether tonight actually produced a signal; check that too.
+        if kind == "PIPELINE_FAILURE":
+            payload = entry.get("payload", {})
+            failure_class = payload.get("failure_class", "unknown")
+            exception_type = payload.get("exception_type", "unknown")
+            msg = (
+                f"PIPELINE_FAILURE for {today}, chained "
+                f"{published.strftime('%H:%M IST')} and pushed to origin -- "
+                f"no signal tonight. failure_class={failure_class} "
+                f"exception_type={exception_type}."
+            )
+            log(f"ALERT — {msg}")
+            alert(msg)
             return 1
 
         log(f"OK — {kind} published {published.strftime('%H:%M IST')} for {today}, pushed to origin.")
