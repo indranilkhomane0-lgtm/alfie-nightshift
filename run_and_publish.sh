@@ -21,6 +21,27 @@ LOG="nightshift/logs/publish_$(date -u +%Y%m%d).log"
 DRY=0; [ "$1" = "--dry" ] && DRY=1
 TODAY_BRIEF="nightshift/briefs/brief_$(date -u +%Y%m%d).txt"
 
+# Shared push-with-retry-then-defer, used everywhere this script pushes.
+# 3 attempts, 30s apart, then gives up WITHOUT treating that as fatal --
+# the commit(s) stay local and ride along with whatever the next run
+# pushes. `git push` (no args, no ref) always sends the full local history
+# ahead of the configured upstream, not just what this invocation added --
+# so this naturally sweeps up any number of prior deferred commits too,
+# not only the newest one. Never exits the script; callers decide what a
+# failed push means for their own exit code.
+push_or_defer() {
+  for attempt in 1 2 3; do
+    if git push >> "$LOG" 2>&1; then
+      echo "PUSHED (attempt $attempt)" >> "$LOG"
+      return 0
+    fi
+    echo "push attempt $attempt failed -- retry in 30s" >> "$LOG"
+    sleep 30
+  done
+  echo "PUSH DEFERRED -- commit(s) stay local, will push on next successful run" >> "$LOG"
+  return 1
+}
+
 # B1d -- SINGLE-INSTANCE LOCK.
 # launchd fires this at 05:30, 05:50 and 06:10 IST. The fallback guard below
 # only short-circuits once tonight's brief is ALREADY CHAINED -- so while a
@@ -88,58 +109,53 @@ if grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
   if git rev-parse @{u} >/dev/null 2>&1 && [ "$(git rev-parse HEAD)" != "$(git rev-parse @{u})" ]; then
     echo "already chained tonight -- retrying push only" >> "$LOG"
     if [ $DRY -eq 1 ]; then echo "DRY RUN -- would push" >> "$LOG"; exit 0; fi
-    for attempt in 1 2 3; do
-      if git push >> "$LOG" 2>&1; then echo "PUSHED on retry (attempt $attempt)" >> "$LOG"; exit 0; fi
-      echo "retry push attempt $attempt failed -- retry in 30s" >> "$LOG"; sleep 30
-    done
-    echo "PUSH FAILED after 3 retry attempts" >> "$LOG"; exit 1
+    push_or_defer
+    exit $?
   fi
   echo "already chained and pushed tonight -- nothing to do" >> "$LOG"
   exit 0
 fi
 
-# B1a -- PRECONDITION GUARD: wait up to 5 min for real connectivity before
-# doing anything. nslookup can resolve from a stale local DNS cache even
-# with no actual route to the internet -- seen 2026-07-31 and 2026-08-01,
-# where the guard passed (cached resolution) while every real connection
-# failed, so the pipeline ran with no network and every push retry failed
-# too. Root cause is likely that the Mac wakes at 5:25 IST but Wi-Fi hasn't
-# associated by 5:30. Test an actual TCP+TLS connection to the host we
-# need (github.com:443), not just name resolution.
-NET=0
-for i in $(seq 1 30); do
-  if curl --connect-timeout 5 --max-time 8 -sS -o /dev/null https://github.com; then
-    NET=1; break
-  fi
-  sleep 10
-done
-if [ $NET -eq 0 ]; then
-  CYCLE_DATE="$(date -u +%Y%m%d)"
-  if grep -qF "\"cycle_date\": \"$CYCLE_DATE\"" reports/chain.jsonl 2>/dev/null; then
-    echo "NETWORK NEVER CAME UP (5 min) -- failure already chained for $CYCLE_DATE, skipping duplicate" >> "$LOG"
-    exit 1
-  fi
-  echo "NETWORK NEVER CAME UP (5 min) -- publishing failure entry locally, will push on next successful run" >> "$LOG"
-  if [ $DRY -eq 0 ]; then
-    "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1
-    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
-    git add reports/chain.jsonl reports/ots/ >> "$LOG" 2>&1
-    git commit -m "Night Shift PIPELINE_FAILURE $(date -u +%Y-%m-%d) (network down)" >> "$LOG" 2>&1
-  fi
-  exit 1
-fi
-echo "network ready after ~$((i*10))s" >> "$LOG"
+# B1a -- NETWORK PRECONDITION GUARD -- REMOVED 2026-09-16.
+# This used to curl github.com for up to 5 min before doing anything, and
+# if it never came up, published a PIPELINE_FAILURE and exited WITHOUT
+# ever attempting the cycle. That conflated two different questions --
+# "can we compute tonight's signal" and "can we publish it" -- into one:
+# 11 of the first 12 PIPELINE_FAILURE entries came from this branch,
+# meaning ~11 nights recorded no signal for a reason that had nothing to
+# do with whether a signal could have been produced. The root-cause
+# finding above (Mac wakes at 5:25 IST, Wi-Fi hasn't associated by 5:30)
+# is still accurate and still the likely cause of most of those -- but
+# testing github.com reachability was never actually a precondition for
+# running the cycle (which needs Binance, not GitHub) or for computing a
+# signal; it only mattered for the push at the very end.
+#
+# The cycle now always runs. If the network genuinely isn't up yet,
+# nightshift/cycle.py's load_price_data() fails the exchange fetch on its
+# own and raises -- caught below as a normal cycle failure, now correctly
+# attributed (see nightshift/run_nightshift.py's failure classification:
+# failure_class "upstream_data") instead of masked behind a generic
+# pre-emptive network guard. If Wi-Fi associates a few seconds into the
+# run, the cycle simply succeeds. Either way, this launchd fire actually
+# tries -- and if it doesn't work out, the 05:50 and 06:10 retries get a
+# real second and third attempt at producing a signal, not just a
+# push-retry on an already-declared failure.
+CYCLE_DATE="$(date -u +%Y%m%d)"
 
 # run the cycle
 "$PY" run_nightshift.py >> "$LOG" 2>&1
 if [ $? -ne 0 ]; then
   echo "CYCLE FAILED -- publishing honest failure entry" >> "$LOG"
   if [ $DRY -eq 0 ]; then
-    "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1
-    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
-    git add reports/chain.jsonl reports/ots/ >> "$LOG" 2>&1
-    git commit -m "Night Shift PIPELINE_FAILURE $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
-    git push >> "$LOG" 2>&1
+    if grep -qF "\"cycle_date\": \"$CYCLE_DATE\"" reports/chain.jsonl 2>/dev/null; then
+      echo "failure already chained for $CYCLE_DATE -- skipping duplicate" >> "$LOG"
+    else
+      "$PY" nightshift/publish_chain.py --failed >> "$LOG" 2>&1
+      "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
+      git add reports/chain.jsonl reports/ots/ >> "$LOG" 2>&1
+      git commit -m "Night Shift PIPELINE_FAILURE $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
+      push_or_defer
+    fi
   fi
   exit 1
 fi
@@ -179,11 +195,7 @@ if [ $DRY -eq 1 ]; then echo "DRY RUN -- would publish:" >> "$LOG"; git diff --c
 
 git commit -m "Night Shift brief $(date -u +%Y-%m-%d)" >> "$LOG" 2>&1
 
-# B1b -- SELF-RECOVERY: retry push up to 3 times, 30s apart
-PUSHED=0
-for attempt in 1 2 3; do
-  if git push >> "$LOG" 2>&1; then PUSHED=1; echo "PUBLISHED (attempt $attempt)" >> "$LOG"; break; fi
-  echo "push attempt $attempt failed -- retry in 30s" >> "$LOG"; sleep 30
-done
-[ $PUSHED -eq 0 ] && { echo "PUSH FAILED after 3 attempts" >> "$LOG"; exit 1; }
-echo "done" >> "$LOG"
+# B1b -- SELF-RECOVERY: push with retry, deferring to a later run on
+# repeated failure rather than treating tonight's success as incomplete.
+push_or_defer
+exit $?
