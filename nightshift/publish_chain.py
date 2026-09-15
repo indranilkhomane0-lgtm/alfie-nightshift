@@ -41,6 +41,34 @@ GENESIS_HASH = "0" * 64
 sys.path.insert(0, str(REPO_ROOT))
 from nightshift.strategy_version import compute_strategy_version  # noqa: E402
 
+# Written by run_nightshift.py's cmd_full() at the instant the cycle
+# actually raises; read here moments later in the same run_and_publish.sh
+# invocation. See run_nightshift.py for why this is a file handoff rather
+# than an import into nightshift.cycle (frozen strategy_version surface).
+FAILURE_SIDECAR_PATH = REPO_ROOT / "nightshift" / "logs" / "last_pipeline_failure.json"
+
+
+def _read_and_clear_failure_sidecar() -> dict:
+    """failure_class/exception_type for a PIPELINE_FAILURE payload --
+    "unknown"/"unknown" if the sidecar is missing, unparseable, or not
+    from today (UTC). Never raises, never blocks the entry from being
+    written: a --failed entry must always get chained even if this
+    classification step can't say anything useful. The sidecar is always
+    deleted before returning, success or not, so a stale file can never
+    leak its category into a later, unrelated night's entry."""
+    info = {"failure_class": "unknown", "exception_type": "unknown"}
+    try:
+        raw = json.loads(FAILURE_SIDECAR_PATH.read_text())
+        written = datetime.fromisoformat(raw["written_at_utc"])
+        if written.date() == datetime.now(timezone.utc).date():
+            info["failure_class"] = raw.get("failure_class", "unknown")
+            info["exception_type"] = raw.get("exception_type", "unknown")
+    except Exception:
+        pass
+    finally:
+        FAILURE_SIDECAR_PATH.unlink(missing_ok=True)
+    return info
+
 
 def canonical(obj) -> bytes:
     """Deterministic JSON serialization — key order and separators fixed."""
@@ -189,10 +217,13 @@ def main() -> int:
                 print(f"error: --data is not valid JSON: {exc}", file=sys.stderr)
                 return 2
     elif args.failed:
+        failure_info = _read_and_clear_failure_sidecar()
         payload = {
             "type": "PIPELINE_FAILURE",
             "note": "Nightly run did not complete. Published for record continuity.",
             "cycle_date": datetime.now(timezone.utc).strftime("%Y%m%d"),
+            "failure_class": failure_info["failure_class"],
+            "exception_type": failure_info["exception_type"],
         }
     elif args.brief:
         text = Path(args.brief).read_text()

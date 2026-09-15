@@ -13,9 +13,21 @@ run_nightshift.py — Alfie Night Shift runner
       # path aborts and lets run_and_publish.sh publish a PIPELINE_FAILURE
       # rather than gate on invented data.
 """
-import argparse, logging, sys
-from datetime import date
+import argparse, json, logging, sys
+from datetime import date, datetime, timezone
 from pathlib import Path
+
+# Sidecar for publish_chain.py --failed: written the instant cmd_full()'s
+# cycle actually raises, read (and deleted) moments later in the same
+# run_and_publish.sh invocation. Lets a PIPELINE_FAILURE payload carry a
+# failure class and exception type without run_and_publish.sh having to
+# parse a captured traceback out of a log file, and without touching
+# nightshift/cycle.py (part of the strategy_version-frozen surface --
+# this classification is diagnostic/logging, not signal logic, but the
+# sidecar keeps the change entirely on this side of that line regardless).
+# Lives under nightshift/logs/, already gitignored -- never committed,
+# never meant to outlive the run that wrote it.
+FAILURE_SIDECAR = Path("nightshift/logs/last_pipeline_failure.json")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,13 +92,53 @@ def cmd_demo(args):
         allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
     print("\n" + brief)
 
+def _classify_failure(exc: Exception) -> str:
+    """Coarse, best-effort category for the chained record -- enough to
+    separate an upstream data/exchange outage from a bug in our own
+    pipeline code, not a full diagnosis. RuntimeError is raised exactly
+    once on the nightly path, by cycle.load_price_data(), specifically
+    when the exchange fetch fails (see that function's docstring: "price
+    fetch failed for {asset}, refusing to proceed on fabricated data").
+    Matching on that message is fragile in the abstract, but it's the
+    one and only RuntimeError site in the real nightly path, so a match
+    failure here just falls back to "internal" -- never crashes, never
+    fabricates a more specific answer than the evidence supports."""
+    if isinstance(exc, RuntimeError) and "price fetch failed" in str(exc):
+        return "upstream_data"
+    return "internal"
+
+
+def _write_failure_sidecar(exc: Exception) -> None:
+    """Best-effort -- read moments later, in the same run_and_publish.sh
+    invocation, by publish_chain.py --failed. Never raises: a failure
+    here must not mask or replace the real exception already propagating
+    out of cmd_full()."""
+    try:
+        FAILURE_SIDECAR.parent.mkdir(parents=True, exist_ok=True)
+        FAILURE_SIDECAR.write_text(json.dumps({
+            "exception_type": type(exc).__name__,
+            "failure_class": _classify_failure(exc),
+            "written_at_utc": datetime.now(timezone.utc).isoformat(),
+        }))
+    except Exception:
+        pass
+
+
 def cmd_full(args):
-    from nightshift.db import init_db
-    from nightshift.cycle import NightShiftCycle
-    init_db()
-    brief = Path(NightShiftCycle(
-        allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
-    print("\n" + brief)
+    try:
+        from nightshift.db import init_db
+        from nightshift.cycle import NightShiftCycle
+        init_db()
+        brief = Path(NightShiftCycle(
+            allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
+        print("\n" + brief)
+    except Exception as exc:
+        # cycle.py already logs+re-raises (see NightShiftCycle.run()) --
+        # this only adds the sidecar, then lets the exception keep
+        # propagating exactly as before, so run_and_publish.sh's exit-code
+        # check is unaffected.
+        _write_failure_sidecar(exc)
+        raise
 
 def cmd_health(args):
     from nightshift.meta_model import get_meta_model
