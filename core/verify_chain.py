@@ -14,10 +14,10 @@ Also reports the numbers a win/loss count alone hides: average and median
 return per graded call (separately for wins and losses -- a 47% win rate
 means nothing without knowing what winning and losing are each worth),
 distinct labeled dates against the meta-model's graduation threshold, and
-the same return numbers again restricted to a frozen version of the
-strategy -- that slice is the only one that will ever be sellable, since
-everything else mixes over a hundred different code versions into one
-win/loss tally.
+the same return numbers again restricted to the current frozen strategy
+version -- that slice is the only one not mixing multiple code versions
+into one win/loss tally; everything else on this record combines over a
+hundred different versions into a single count.
 
 Three freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
 FROZEN_STRATEGY_VERSION_V1, and FROZEN_STRATEGY_VERSION below. The first
@@ -291,7 +291,7 @@ def main() -> int:
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
           f"-- second repoint (meta_model.py added as a conservative buffer); "
-          f"the record that's actually sellable):")
+          f"current frozen strategy version):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 
