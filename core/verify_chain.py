@@ -47,7 +47,28 @@ import sys
 from pathlib import Path
 
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
+OTS_DIR = Path(__file__).resolve().parent.parent / "reports" / "ots"
 GENESIS_HASH = "0" * 64
+
+# Entries published before this date predate anchoring and are covered by
+# the hash chain alone -- no receipt is expected, and none is backfilled.
+# Keep in sync with nightshift/anchor_ots.py's ANCHORING_START and
+# nightshift/self_audit.py's OTS_ANCHORING_START.
+ANCHORING_START = "2026-07-28"
+
+# First 32 bytes of every well-formed OpenTimestamps proof file (the
+# literal ASCII "\x00OpenTimestamps\x00\x00Proof\x00" header plus its
+# fixed magic suffix) -- confirmed against a real .hash.ots in this
+# repo's reports/ots/, not taken on faith from the spec. A structural
+# check only: this confirms the file at least looks like a real OTS
+# proof, not that Bitcoin has attested to it. That deeper check needs
+# the `ots` CLI plus either a local Bitcoin node or a block explorer to
+# query -- exactly the dependency this script exists to avoid (see
+# README's Bitcoin anchoring section, "the honest limit"). Run
+# `ots verify <file>` yourself for that.
+OTS_MAGIC = bytes.fromhex(
+    "004f70656e54696d657374616d7073000050726f6f6600bf89e2e884e89294"
+)
 
 # Original freeze, declared 2026-09-14 (chain entry 234, METHODOLOGY_CHANGE):
 # code frozen at this exact code_version (git HEAD sha at chain time), first
@@ -109,10 +130,39 @@ def _mean_median(values):
     return statistics.mean(values), statistics.median(values)
 
 
-def compute_stats(chain_path: Path) -> dict:
+def _receipt_status(entry_hash: str, ots_dir: Path) -> str:
+    """"receipted" | "missing" | "invalid" for one entry's OpenTimestamps
+    proof. Structural only -- see OTS_MAGIC above for exactly what this
+    does and doesn't confirm. Three ways to fail, all surfaced as
+    "invalid" rather than raising: the .hash sidecar exists but its
+    content doesn't match entry_hash (corrupted or mismatched sidecar);
+    the .hash.ots file is too short or doesn't start with OTS_MAGIC
+    (truncated, corrupted, or not actually an OTS proof); or the file
+    can't be read at all (permissions, race with a concurrent write)."""
+    ots_file = ots_dir / f"{entry_hash}.hash.ots"
+    if not ots_file.exists():
+        return "missing"
+    try:
+        hash_file = ots_dir / f"{entry_hash}.hash"
+        if hash_file.exists() and hash_file.read_text().strip() != entry_hash:
+            return "invalid"
+        with ots_file.open("rb") as f:
+            header = f.read(len(OTS_MAGIC))
+        if header != OTS_MAGIC:
+            return "invalid"
+    except Exception:
+        return "invalid"
+    return "receipted"
+
+
+def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     """Walk the chain from genesis, verifying every hash link, and return
     every number main() prints. Raises ChainBroken at the first mismatch."""
     prev = GENESIS_HASH
+    receipt_counts = {"receipted": 0, "missing": 0, "invalid": 0}
+    missing_entries = []   # 1-based line numbers, for "visible in the output"
+    invalid_entries = []
+    predates_anchoring = 0
     wins = losses = waits = failures = 0
     code_versions = {}  # code_version -> 1-based index of first appearance
     # (asset, direction, cycle_date) -> {"outcome", "return_pct",
@@ -141,6 +191,20 @@ def compute_stats(chain_path: Path) -> dict:
             if entry["entry_hash"] != expect:
                 raise ChainBroken(f"BROKEN at line {i}: entry_hash mismatch (edited payload)")
             prev = entry["entry_hash"]
+
+            # Every entry gets checked, not just LABELED_OUTCOME -- anchor_ots.py
+            # stamps every chained hash regardless of payload type. published_at_utc
+            # (top-level, not payload) is the same field anchor_ots.py's own
+            # unanchored_entries() filters on.
+            if entry.get("published_at_utc", "")[:10] < ANCHORING_START:
+                predates_anchoring += 1
+            else:
+                status = _receipt_status(entry["entry_hash"], ots_dir)
+                receipt_counts[status] += 1
+                if status == "missing":
+                    missing_entries.append(i)
+                elif status == "invalid":
+                    invalid_entries.append(i)
 
             p = entry["payload"]
             cv = p.get("code_version", "(predates code_version)")
@@ -210,6 +274,10 @@ def compute_stats(chain_path: Path) -> dict:
         "outcome_conflicts": outcome_conflicts,
         "code_versions": code_versions,
         "labeled_dates_count": len(labeled_dates),
+        "receipt_counts": receipt_counts,
+        "missing_receipt_entries": missing_entries,
+        "invalid_receipt_entries": invalid_entries,
+        "predates_anchoring": predates_anchoring,
         "return_stats": {
             "win": (*_mean_median(win_returns), len(win_returns)),
             "loss": (*_mean_median(loss_returns), len(loss_returns)),
@@ -265,6 +333,29 @@ def main() -> int:
             f"asset+direction+night graded differently -- distinct-call counts "
             f"above are not reliable until this is investigated"
         )
+
+    rc = stats["receipt_counts"]
+    print(
+        f"OTS receipts (entries since {ANCHORING_START}): {rc['receipted']} receipted / "
+        f"{rc['missing']} missing / {rc['invalid']} invalid "
+        f"({stats['predates_anchoring']} entries predate anchoring, no receipt expected, "
+        f"not backfilled)"
+    )
+    if stats["missing_receipt_entries"]:
+        print(f"  MISSING: entry line(s) {stats['missing_receipt_entries']}")
+    if stats["invalid_receipt_entries"]:
+        print(f"  INVALID: entry line(s) {stats['invalid_receipt_entries']}")
+    if rc["missing"] or rc["invalid"]:
+        print(
+            "  a receipt gap here is not fatal to the chain -- the hash chain "
+            "itself is unaffected -- but it is a real anchoring gap until "
+            "nightshift/anchor_ots.py's next sweep clears it"
+        )
+    print(
+        "  structural check only: confirms a well-formed OTS proof file "
+        "exists, not that Bitcoin has attested to it -- run `ots verify "
+        "<file>` yourself for that"
+    )
 
     rs = stats["return_stats"]
     print("return per graded call (all code versions):")

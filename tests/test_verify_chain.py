@@ -24,7 +24,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
-from verify_chain import compute_stats, FROZEN_CODE_VERSION, FROZEN_STRATEGY_VERSION  # noqa: E402
+from verify_chain import (  # noqa: E402
+    compute_stats, FROZEN_CODE_VERSION, FROZEN_STRATEGY_VERSION,
+    ANCHORING_START, OTS_MAGIC,
+)
 from nightshift.strategy_version import (  # noqa: E402
     compute_strategy_version, STRATEGY_VERSION_FILES,
 )
@@ -32,24 +35,36 @@ from nightshift.strategy_version import (  # noqa: E402
 GENESIS_HASH = "0" * 64
 OTHER_CODE_VERSION = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 OTHER_STRATEGY_VERSION = "beefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead"
+# Before ANCHORING_START (2026-07-28) -- the existing tests all use this
+# date, which incidentally means none of them are anchoring-eligible, so
+# the receipt checks below stay silent for every payload constructed by
+# _outcome()/_write_chain() unless a test explicitly asks for a later date.
+PRE_ANCHORING_DATE = "2026-01-01T00:00:00+00:00"
+POST_ANCHORING_DATE = "2026-09-16T00:00:00+00:00"
 
 
 def _canonical(obj) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _write_chain(payloads) -> Path:
+def _write_chain(payloads, published_at_utc=PRE_ANCHORING_DATE) -> Path:
     """Hash-link payloads exactly as publish_chain.append_entry does and
-    write them to a fresh temp file; returns the path."""
+    write them to a fresh temp file; returns the path. published_at_utc
+    is a single date applied to every payload unless a list matching
+    len(payloads) is given, for tests that need per-entry dates (e.g.
+    mixing pre- and post-anchoring entries in one chain)."""
+    dates = (published_at_utc if isinstance(published_at_utc, list)
+              else [published_at_utc] * len(payloads))
+    assert len(dates) == len(payloads)
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".jsonl", delete=False, dir=tempfile.gettempdir()
     )
     prev = GENESIS_HASH
     with tmp:
-        for payload in payloads:
+        for payload, pub in zip(payloads, dates):
             entry_hash = hashlib.sha256(prev.encode() + _canonical(payload)).hexdigest()
             entry = {
-                "published_at_utc": "2026-01-01T00:00:00+00:00",
+                "published_at_utc": pub,
                 "prev_hash": prev,
                 "payload": payload,
                 "entry_hash": entry_hash,
@@ -267,6 +282,85 @@ class StrategyVersionFileHashTest(unittest.TestCase):
             after = compute_strategy_version(root=root)
 
         self.assertNotEqual(baseline, after)
+
+
+class ReceiptVerificationTest(unittest.TestCase):
+    """Task 3: a missing or invalid OTS receipt must be visible in
+    compute_stats()'s output (what main() prints from), not silently
+    passed over -- and pre-anchoring entries must not count as gaps."""
+
+    def _write_receipt(self, ots_dir, entry_hash, *, ok=True, magic=None,
+                        sidecar=None):
+        ots_dir.mkdir(parents=True, exist_ok=True)
+        (ots_dir / f"{entry_hash}.hash").write_text(
+            entry_hash if sidecar is None else sidecar
+        )
+        content = OTS_MAGIC + b"\x00" * 20 if ok else (magic or b"not-an-ots-file-at-all-")
+        (ots_dir / f"{entry_hash}.hash.ots").write_bytes(content)
+
+    def test_receipted_missing_invalid_all_counted_and_listed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"
+            payloads = [{"type": "X", "n": 1}, {"type": "X", "n": 2}, {"type": "X", "n": 3}]
+            chain_path = _write_chain(payloads, published_at_utc=POST_ANCHORING_DATE)
+            hashes = [json.loads(l)["entry_hash"] for l in chain_path.read_text().splitlines()]
+
+            self._write_receipt(ots_dir, hashes[0], ok=True)
+            # hashes[1]: no receipt written at all -> missing
+            self._write_receipt(ots_dir, hashes[2], ok=False)  # bad magic -> invalid
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["receipt_counts"],
+                          {"receipted": 1, "missing": 1, "invalid": 1})
+        self.assertEqual(stats["missing_receipt_entries"], [2])
+        self.assertEqual(stats["invalid_receipt_entries"], [3])
+        self.assertEqual(stats["predates_anchoring"], 0)
+
+    def test_mismatched_sidecar_is_invalid_not_receipted(self):
+        """A .hash file that exists but doesn't match the entry's own
+        hash is corruption, not absence -- must not read as a pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"
+            chain_path = _write_chain([{"type": "X"}], published_at_utc=POST_ANCHORING_DATE)
+            entry_hash = json.loads(chain_path.read_text())["entry_hash"]
+            self._write_receipt(ots_dir, entry_hash, ok=True, sidecar="wrong-hash-entirely")
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["receipt_counts"]["invalid"], 1)
+        self.assertEqual(stats["receipt_counts"]["receipted"], 0)
+
+    def test_pre_anchoring_entries_excluded_not_flagged_as_gaps(self):
+        """No backfill: an entry from before ANCHORING_START has no
+        receipt by design and must not show up as missing/invalid."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"  # left empty -- no receipts anywhere
+            payloads = [{"type": "X", "n": 1}, {"type": "X", "n": 2}]
+            chain_path = _write_chain(
+                payloads, published_at_utc=[PRE_ANCHORING_DATE, POST_ANCHORING_DATE]
+            )
+            hashes = [json.loads(l)["entry_hash"] for l in chain_path.read_text().splitlines()]
+            self._write_receipt(ots_dir, hashes[1], ok=True)  # only the post-anchoring one
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["predates_anchoring"], 1)
+        self.assertEqual(stats["receipt_counts"],
+                          {"receipted": 1, "missing": 0, "invalid": 0})
+        self.assertEqual(stats["missing_receipt_entries"], [])
+
+    def test_real_ots_magic_constant_matches_a_real_receipt_in_this_repo(self):
+        """Not just internally consistent -- OTS_MAGIC must match what
+        nightshift/anchor_ots.py actually produces. Skips gracefully if
+        this checkout has no real receipts yet (e.g. ots was never
+        installed here) rather than failing on an environment gap."""
+        real_ots_dir = ROOT / "reports" / "ots"
+        real_files = list(real_ots_dir.glob("*.hash.ots")) if real_ots_dir.exists() else []
+        if not real_files:
+            self.skipTest("no real .hash.ots files in this checkout to check against")
+        header = real_files[0].read_bytes()[:len(OTS_MAGIC)]
+        self.assertEqual(header, OTS_MAGIC)
 
 
 if __name__ == "__main__":
