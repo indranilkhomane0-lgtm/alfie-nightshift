@@ -8,6 +8,13 @@ Appends each nightly brief to reports/chain.jsonl as a hash-chained entry:
 Any edit to any historical entry breaks every hash after it.
 Verification requires nothing but Python stdlib (see verify_chain.py).
 
+Every entry also gets a best-effort OpenTimestamps stamp attempt at the
+moment it's written (see _stamp_at_publish_time()) -- a calendar-server
+miss here is never fatal and never blocks the entry; it defers to
+nightshift/anchor_ots.py's backlog sweep, which retries across as many
+subsequent runs as it takes. verify_chain.py reports receipt coverage;
+it does not gate publishing on it.
+
 Usage (called by the nightly pipeline as its final step):
     python3 nightshift/publish_chain.py --brief nightshift/briefs/brief_YYYYMMDD.txt
 
@@ -40,6 +47,9 @@ GENESIS_HASH = "0" * 64
 # the second case is harmless.
 sys.path.insert(0, str(REPO_ROOT))
 from nightshift.strategy_version import compute_strategy_version  # noqa: E402
+from nightshift import anchor_ots as _anchor_ots  # noqa: E402
+
+OTS_DIR = REPO_ROOT / "reports" / "ots"
 
 # Written by run_nightshift.py's cmd_full() at the instant the cycle
 # actually raises; read here moments later in the same run_and_publish.sh
@@ -73,6 +83,49 @@ def _read_and_clear_failure_sidecar() -> dict:
 def canonical(obj) -> bytes:
     """Deterministic JSON serialization — key order and separators fixed."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _stamp_at_publish_time(entry_hash: str) -> bool:
+    """Best-effort, single-attempt OpenTimestamps stamp for the entry just
+    written -- reuses nightshift/anchor_ots.py's own find_ots()/stamp()
+    rather than duplicating the ots-CLI-invocation logic.
+
+    Deliberately not a retry loop: one attempt, same per-call timeout
+    anchor_ots.stamp() already enforces (STAMP_TIMEOUT_S). If the calendar
+    is unreachable, `ots` isn't installed, or anything else goes wrong,
+    this defers silently -- the chain entry is written either way, just
+    without a receipt yet. Nothing here blocks or fails the publish.
+
+    That deferred entry doesn't wait on anything special to get swept up:
+    anchor_ots.py's own unanchored_entries() re-scans the WHOLE chain for
+    hashes missing a .hash.ots on every single run (moments later in the
+    same run_and_publish.sh invocation, and again every subsequent night),
+    so a publish-time miss here is retried indefinitely until it succeeds
+    -- the same defer-and-sweep shape as push_or_defer() in
+    run_and_publish.sh, just architected as "retry via the next sweep"
+    rather than "retry N times in this call," because anchor_ots.py's
+    sweep already retries across as many nights as it takes.
+
+    Never raises. Return value is informational only -- callers don't
+    need to act on it, since a False here is exactly what the backlog
+    sweep exists to fix."""
+    try:
+        ots_bin = _anchor_ots.find_ots()
+        if ots_bin is None:
+            return False
+        OTS_DIR.mkdir(parents=True, exist_ok=True)
+        hash_file = OTS_DIR / f"{entry_hash}.hash"
+        hash_file.write_text(entry_hash)
+        if _anchor_ots.stamp(ots_bin, hash_file):
+            return True
+        # Never leave a .hash without a .ots -- see anchor_ots.py's own
+        # comment on this exact invariant (it's what self_audit's
+        # orphan_hash_no_ots check flags). unanchored_entries() only
+        # re-attempts entries with NEITHER file present.
+        hash_file.unlink(missing_ok=True)
+        return False
+    except Exception:
+        return False
 
 
 def last_hash() -> str:
@@ -169,6 +222,13 @@ def append_entry(payload: dict) -> dict:
     CHAIN_PATH.parent.mkdir(parents=True, exist_ok=True)
     with CHAIN_PATH.open("a") as f:
         f.write(json.dumps(entry, sort_keys=True) + "\n")
+    # At publish time, not as an afterthought: best-effort, deferred to
+    # anchor_ots.py's backlog sweep on any failure -- see
+    # _stamp_at_publish_time()'s docstring. Only after the chain write
+    # above, and never allowed to affect it: an entry that exists but
+    # isn't yet stamped is normal and expected; an entry that's stamped
+    # but was never chained would be backwards.
+    _stamp_at_publish_time(entry["entry_hash"])
     return entry
 
 
