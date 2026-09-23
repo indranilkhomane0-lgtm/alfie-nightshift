@@ -9,7 +9,7 @@ import ccxt
 from nightshift.config import (ASSETS, EXCHANGE_ID, OHLCV_DAYS,
     BRIEF_DIR, REGIME_NAMES, META_LIVE_WINDOW, OPTUNA_TRIALS)
 from nightshift.db import (init_db, log_cycle_start, log_cycle_end,
-    log_cycle_error, insert_config_entry, corpus_size)
+    log_cycle_error, insert_config_entry, labeled_prediction_date_count)
 from nightshift.regime_engine import RegimeEngine, compute_hmm_features
 from nightshift.wfo_engine import WFOEngine
 from nightshift.mc_gate import run_mc_gates
@@ -87,8 +87,8 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
         f"  Eligible: {[k for k,v in regime.eligible_families.items() if v]}",
         "",
         "── META-MODEL ──────────────────────────────────────────────────────",
-        f"  Corpus: {corpus_n} labelled rows  "
-        f"{'ACTIVE' if corpus_n>=30 else 'STANDBY — need 30 rows'}",
+        f"  Corpus: {corpus_n} distinct labeled dates  "
+        f"{'ACTIVE' if corpus_n>=30 else 'STANDBY — need 30 dates'}",
         "",
         "── TOP CONFIGURATIONS ──────────────────────────────────────────────",
     ]
@@ -267,7 +267,7 @@ class NightShiftCycle:
                 self.monitor.deregister(ms.config_id)
         duration   = time.time() - t0
         brief_text = _brief(self.cycle_id, regime, top3, monitor_statuses,
-                            top3m, corpus_size(), duration)
+                            top3m, labeled_prediction_date_count(), duration)
         brief_path = str(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
         Path(brief_path).write_text(brief_text, encoding="utf-8")
 

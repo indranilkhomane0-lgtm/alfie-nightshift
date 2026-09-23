@@ -19,25 +19,41 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Three freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1, and FROZEN_STRATEGY_VERSION below. The first
-freeze (chain entry 234) was declared against code_version, the git HEAD
-sha at chain time. That conflates strategy changes with every tooling/
-infra commit made under the freeze, silently: an anchoring fix or a
-logging tweak moves code_version exactly as much as a change to signal
-logic would, so code_version cannot actually tell the two apart. The
-first correction (the entry immediately after 234) repointed the freeze
-to strategy_version -- a content hash over only the files that can change
-what signal gets emitted (see nightshift/strategy_version.py), computed
-independently of git history. That hash is now FROZEN_STRATEGY_VERSION_V1:
-its surface excluded nightshift/meta_model.py, traced and confirmed
-non-causal (it gates nothing today -- see that module's docstring). The
-second correction added meta_model.py back as a conservative buffer
-against a future wiring change moving the system without moving the hash,
-which produced a new value -- FROZEN_STRATEGY_VERSION, the one that
-governs from that correction forward. All three constants and all three
-filtered sections stay: each slice is real history that already happened
-under those terms and does not get erased by the next correction.
+Four freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2, and
+FROZEN_STRATEGY_VERSION below. The first freeze (chain entry 234) was
+declared against code_version, the git HEAD sha at chain time. That
+conflates strategy changes with every tooling/infra commit made under the
+freeze, silently: an anchoring fix or a logging tweak moves code_version
+exactly as much as a change to signal logic would, so code_version cannot
+actually tell the two apart. The first correction (the entry immediately
+after 234) repointed the freeze to strategy_version -- a content hash over
+only the files that can change what signal gets emitted (see
+nightshift/strategy_version.py), computed independently of git history.
+That hash is now FROZEN_STRATEGY_VERSION_V1: its surface excluded
+nightshift/meta_model.py, traced and confirmed non-causal (it gates
+nothing today -- see that module's docstring). The second correction
+added meta_model.py back as a conservative buffer against a future wiring
+change moving the system without moving the hash, which produced
+FROZEN_STRATEGY_VERSION_V2. The third correction (2026-09-23) fixed a
+frozen-surface file (cycle.py) directly rather than repointing which
+files are hashed: the nightly brief's meta-model progress line called
+corpus_size() -- a permanently-zero, LiveMonitor-dependent counter
+disclosed as dead in the 2026-08-01 METHODOLOGY_CHANGE -- where it should
+have called labeled_prediction_date_count(), the counter the meta-model's
+own training gate actually uses. A permitted display/logging fix (entry
+234's permitted-during-freeze terms), but cycle.py is hashed whole with
+no carve-out for non-causal spans (see strategy_version.py: "glue code is
+as signal-determining as the logic it calls"), so fixing it moved the
+hash regardless of the change being cosmetic. That produced the current
+value, FROZEN_STRATEGY_VERSION. All four constants and all four filtered
+sections stay: each slice is real history that already happened under
+those terms and does not get erased by the next correction. Note what
+does NOT reset here, since it's easy to conflate with what does:
+LABELED_DATES_TARGET progress (below) counts distinct settle dates across
+the whole predictions record, unfiltered by strategy_version -- changing
+the frozen surface starts a new performance slice, it does not zero the
+graduation count.
 """
 
 import hashlib
@@ -95,12 +111,29 @@ FROZEN_STRATEGY_VERSION_V1 = "a7bdda9ce2654c0d24810b86c27c6e427b9f9aac7258ce98b5
 # buffer -- it gates nothing today (LiveMonitor.register() is still never
 # called from cycle.py), but a future wiring change that made it start
 # gating deployment would otherwise move the system without moving the
-# hash. This is the value that actually governs the freeze from this
-# second correction forward. Literal here for the same zero-repo-imports
-# reason as the constants above -- this file does not import nightshift.
-# strategy_version to compute it live, it only compares the stored
-# payload field against this pinned value.
-FROZEN_STRATEGY_VERSION = "e66ce4f8754a4445b21d5a1c1c0b166afc36e856b588814c719bfa4918e835e8"
+# hash. Governed the freeze from that correction until the third below.
+# Superseded -- kept, filter and all, for the same real-history reason
+# the constants above were kept rather than dropped.
+FROZEN_STRATEGY_VERSION_V2 = "e66ce4f8754a4445b21d5a1c1c0b166afc36e856b588814c719bfa4918e835e8"
+
+# Third correction, declared 2026-09-23: not a repoint of which files are
+# hashed (the 8-file surface is unchanged), but a permitted fix made
+# directly to one of those files. cycle.py's brief-rendering call passed
+# corpus_size() -- disclosed 2026-08-01 as permanently zero, dependent on
+# LiveMonitor.register(), which is never called -- where it should have
+# passed labeled_prediction_date_count(), the counter
+# nightshift/meta_model.py's own training gate actually uses. A checked
+# alternative -- moving the brief-rendering call off the frozen surface
+# entirely, the way failure classification was routed through
+# run_nightshift.py rather than argued as exempt -- was not available
+# here: the brief is written to disk from inside cycle.py's own Stage 7,
+# interleaved with prediction-stamping that depends on the same local
+# state, and strategy_version.py hashes cycle.py whole with no carve-out
+# for non-causal spans ("glue code is as signal-determining as the logic
+# it calls"). The fix was made in place and disclosed. This is the value
+# that actually governs the freeze from this correction forward. Literal
+# here for the same zero-repo-imports reason as the constants above.
+FROZEN_STRATEGY_VERSION = "06d869d35c9922053016cd0b316ea5ceffc6b58906239dbbe2e12e65359887e5"
 
 # Meta-model graduation gate (nightshift/config.py META_MIN_SAMPLES) --
 # distinct labeled dates, not distinct calls or rows: same-night calls
@@ -264,6 +297,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_cv_loss = returns("LOSS", code_version=FROZEN_CODE_VERSION)
     frozen_sv1_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V1)
     frozen_sv1_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V1)
+    frozen_sv2_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V2)
+    frozen_sv2_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V2)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -289,6 +324,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v1_return_stats": {
             "win": (*_mean_median(frozen_sv1_win), len(frozen_sv1_win)),
             "loss": (*_mean_median(frozen_sv1_loss), len(frozen_sv1_loss)),
+        },
+        "frozen_strategy_version_v2_return_stats": {
+            "win": (*_mean_median(frozen_sv2_win), len(frozen_sv2_win)),
+            "loss": (*_mean_median(frozen_sv2_loss), len(frozen_sv2_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -379,10 +418,17 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs1rs['win'])}")
     print(f"  losses: {_print_return_stats(fs1rs['loss'])}")
 
+    fs2rs = stats["frozen_strategy_version_v2_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V2[:12]} only "
+          f"-- second repoint (meta_model.py added as a conservative buffer), "
+          f"superseded; kept for history):")
+    print(f"  wins:   {_print_return_stats(fs2rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs2rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- second repoint (meta_model.py added as a conservative buffer); "
-          f"current frozen strategy version):")
+          f"-- third correction (cycle.py brief-display fix, corpus_size() -> "
+          f"labeled_prediction_date_count()); current frozen strategy version):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 
