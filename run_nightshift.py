@@ -13,9 +13,35 @@ run_nightshift.py — Alfie Night Shift runner
       # path aborts and lets run_and_publish.sh publish a PIPELINE_FAILURE
       # rather than gate on invented data.
 """
-import argparse, json, logging, sys
-from datetime import date, datetime, timezone
+import sys
 from pathlib import Path
+
+# Refuse to run outside this repo's venv, checked before any other import.
+# Third-party imports (numpy, pandas, ccxt, sklearn, ...) are lazy -- inside
+# cmd_*() and inside nightshift.cycle -- so under the wrong interpreter this
+# used to run for a moment, then crash mid-import with ModuleNotFoundError
+# from inside cmd_full()'s own try/except, which writes
+# nightshift/logs/last_pipeline_failure.json indistinguishable from a real
+# automated cycle failure: 2026-09-25's chain entry (a genuine Binance
+# timeout) inherited a stale ModuleNotFoundError classification this way,
+# from an earlier same-day manual run under the wrong interpreter -- the
+# sidecar's staleness check only compares dates, not which run wrote it.
+# Checking here, before argparse/logging/anything else loads, means a
+# wrong-interpreter invocation exits cleanly with no sidecar at all, rather
+# than leaving behind what looks like an unprocessed incident to whoever
+# looks next.
+_VENV_DIR = (Path(__file__).resolve().parent / "venv")
+if Path(sys.prefix).resolve() != _VENV_DIR.resolve():
+    print(
+        f"run_nightshift.py must run under this repo's venv "
+        f"({_VENV_DIR}), not {sys.executable}.\n"
+        f"Run instead:\n  {_VENV_DIR}/bin/python3 {' '.join(sys.argv)}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+import argparse, json, logging
+from datetime import date, datetime, timezone
 
 # Sidecar for publish_chain.py --failed: written the instant cmd_full()'s
 # cycle actually raises, read (and deleted) moments later in the same
