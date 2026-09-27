@@ -1,18 +1,38 @@
 ====================================================================
   ALFIE — NIGHT SHIFT MORNING BRIEF
-  Cycle #20260926  ·  2026-09-26 03:54 UTC  ·  14s
+  Cycle #20260927  ·  2026-09-27 00:01 UTC  ·  21s
 ====================================================================
 
 ── REGIME ─────────────────────────────────────────────────────────
-  2 — CHOPPY / RANGING  P=100%  days_in=6  trans_p=9%
-  Size mult: 50%  Vol target: 8% ann
-  Eligible: ['mean_rev']
+  0 — LOW-VOL BULL  P=100%  days_in=10  trans_p=3%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
 
 ── META-MODEL ──────────────────────────────────────────────────────
   Corpus: 17 distinct labeled dates  STANDBY — need 30 dates
 
 ── TOP CONFIGURATIONS ──────────────────────────────────────────────
-  No configs passed all gates tonight.
+
+  [1] ETH/USDT_momentum_0d13817e5b43
+      WFO  Sharpe=2.95  Sortino=9.82  MaxDD=-7.7%
+      GT=2.827  stability_σ=n/a
+      MC   G1=2.95 G2=2.85 G3=2.39 G4=2.95 G5_sens=0.13
+      META [FALLBACK] corpus too small — using GT-Score=3.956
+      Params: {"fast_ma": 19, "slow_ma": 43, "rsi_entry": 44}
+
+  [2] ETH/USDT_momentum_6775a82b4298
+      WFO  Sharpe=2.97  Sortino=9.34  MaxDD=-7.6%
+      GT=2.766  stability_σ=n/a
+      MC   G1=2.97 G2=2.88 G3=2.45 G4=2.97 G5_sens=0.43
+      META [FALLBACK] corpus too small — using GT-Score=3.901
+      Params: {"fast_ma": 29, "slow_ma": 49, "rsi_entry": 49}
+
+  [3] ETH/USDT_momentum_ea8dc27e638e
+      WFO  Sharpe=2.97  Sortino=9.34  MaxDD=-7.6%
+      GT=2.766  stability_σ=n/a
+      MC   G1=2.97 G2=2.88 G3=2.44 G4=2.97 G5_sens=0.32
+      META [FALLBACK] corpus too small — using GT-Score=3.538
+      Params: {"fast_ma": 28, "slow_ma": 57, "rsi_entry": 49}
 
 ── LIVE HEALTH ─────────────────────────────────────────────────────
   No strategies currently deployed.
