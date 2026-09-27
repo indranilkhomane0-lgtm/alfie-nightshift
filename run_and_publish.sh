@@ -21,6 +21,17 @@ LOG="nightshift/logs/publish_$(date -u +%Y%m%d).log"
 DRY=0; [ "$1" = "--dry" ] && DRY=1
 TODAY_BRIEF="nightshift/briefs/brief_$(date -u +%Y%m%d).txt"
 
+# Identity for this specific invocation, not just today's date. A failure
+# sidecar (nightshift/logs/last_pipeline_failure.json) used to be trusted
+# by same-day date alone -- see chain entry 285: a stale sidecar from an
+# unrelated same-day manual run got read as if it described a real
+# automated failure. run_nightshift.py stamps this into the sidecar it
+# writes; publish_chain.py --failed only accepts a sidecar whose run_id
+# matches this one, inherited via the environment by both child processes
+# below since they're invoked from this same shell. $$-epoch-$RANDOM
+# rather than GNU date's %N (unavailable in macOS's BSD date).
+export ALFIE_RUN_ID="$$-$(date -u +%s)-$RANDOM"
+
 # Shared push-with-retry-then-defer, used everywhere this script pushes.
 # 3 attempts, 30s apart, then gives up WITHOUT treating that as fatal --
 # the commit(s) stay local and ride along with whatever the next run

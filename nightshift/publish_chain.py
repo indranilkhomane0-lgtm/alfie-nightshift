@@ -28,6 +28,7 @@ import argparse
 import functools
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -60,17 +61,38 @@ FAILURE_SIDECAR_PATH = REPO_ROOT / "nightshift" / "logs" / "last_pipeline_failur
 
 def _read_and_clear_failure_sidecar() -> dict:
     """failure_class/exception_type for a PIPELINE_FAILURE payload --
-    "unknown"/"unknown" if the sidecar is missing, unparseable, or not
-    from today (UTC). Never raises, never blocks the entry from being
-    written: a --failed entry must always get chained even if this
-    classification step can't say anything useful. The sidecar is always
-    deleted before returning, success or not, so a stale file can never
-    leak its category into a later, unrelated night's entry."""
+    "unknown"/"unknown" if the sidecar is missing, unparseable, not from
+    today (UTC), or not from this run. Never raises, never blocks the
+    entry from being written: a --failed entry must always get chained
+    even if this classification step can't say anything useful. The
+    sidecar is always deleted before returning, success or not, so a
+    stale file can never leak its category into a later entry.
+
+    A same-day date match alone used to be treated as proof the sidecar
+    described the failure being published right now -- it doesn't; it
+    only proves something failed today. Chain entry 285 corrects the
+    result of that gap: an unrelated same-day manual run's stale sidecar
+    was read as if it described the real automated failure that
+    followed it. run_and_publish.sh now exports ALFIE_RUN_ID once per
+    invocation, inherited by both the run_nightshift.py call that would
+    write this sidecar and this process reading it -- a real match
+    proves same-run, not just same-day. Both sides must be a real,
+    non-"unknown" id for this to count as a match; two runs that both
+    lack an id are not treated as the same run just because neither has
+    one -- see the deliberate rejection test for exactly this case."""
     info = {"failure_class": "unknown", "exception_type": "unknown"}
     try:
         raw = json.loads(FAILURE_SIDECAR_PATH.read_text())
         written = datetime.fromisoformat(raw["written_at_utc"])
-        if written.date() == datetime.now(timezone.utc).date():
+        sidecar_run_id = raw.get("run_id", "unknown")
+        current_run_id = os.environ.get("ALFIE_RUN_ID", "unknown")
+        same_day = written.date() == datetime.now(timezone.utc).date()
+        same_run = (
+            sidecar_run_id != "unknown"
+            and current_run_id != "unknown"
+            and sidecar_run_id == current_run_id
+        )
+        if same_day and same_run:
             info["failure_class"] = raw.get("failure_class", "unknown")
             info["exception_type"] = raw.get("exception_type", "unknown")
     except Exception:

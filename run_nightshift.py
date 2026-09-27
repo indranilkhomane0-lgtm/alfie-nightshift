@@ -40,7 +40,7 @@ if Path(sys.prefix).resolve() != _VENV_DIR.resolve():
     )
     raise SystemExit(1)
 
-import argparse, json, logging
+import argparse, json, logging, os
 from datetime import date, datetime, timezone
 
 # Sidecar for publish_chain.py --failed: written the instant cmd_full()'s
@@ -138,13 +138,23 @@ def _write_failure_sidecar(exc: Exception) -> None:
     """Best-effort -- read moments later, in the same run_and_publish.sh
     invocation, by publish_chain.py --failed. Never raises: a failure
     here must not mask or replace the real exception already propagating
-    out of cmd_full()."""
+    out of cmd_full().
+
+    run_id: run_and_publish.sh exports ALFIE_RUN_ID once per invocation,
+    inherited here and by the publish_chain.py --failed call that follows
+    in the same shell. Stamping it into the sidecar lets the reader bind
+    a sidecar to the specific run that wrote it, not just today's date --
+    see chain entry 285 for what a same-day-only check missed (a stale
+    sidecar from an unrelated manual run got read as this run's own).
+    Absent (manual invocation, no wrapper script) -> "unknown", same
+    fail-safe placeholder used elsewhere in this file."""
     try:
         FAILURE_SIDECAR.parent.mkdir(parents=True, exist_ok=True)
         FAILURE_SIDECAR.write_text(json.dumps({
             "exception_type": type(exc).__name__,
             "failure_class": _classify_failure(exc),
             "written_at_utc": datetime.now(timezone.utc).isoformat(),
+            "run_id": os.environ.get("ALFIE_RUN_ID", "unknown"),
         }))
     except Exception:
         pass
