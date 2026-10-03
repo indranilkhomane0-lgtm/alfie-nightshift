@@ -4,7 +4,8 @@ Tests for nightshift/publish_chain.py's publish-time OpenTimestamps
 stamping (_stamp_at_publish_time) and its defer-to-anchor_ots.py's-sweep
 behavior on a calendar failure -- the OTS equivalent of run_and_publish.sh's
 push_or_defer() and its "more than one deferred commit" test, but for
-anchoring instead of git push.
+anchoring instead of git push -- plus _code_version()'s dirty-check
+scoping (CodeVersionDirtyScopeTest).
 
 Forces the unreachable-calendar condition by monkeypatching
 nightshift.anchor_ots.stamp() (the one function that actually shells out
@@ -19,6 +20,7 @@ stdlib only. Run directly:
     python3 tests/test_publish_chain.py
 """
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from nightshift import anchor_ots  # noqa: E402
 from nightshift.publish_chain import _stamp_at_publish_time, OTS_DIR as PUBLISH_OTS_DIR  # noqa: E402
+from nightshift import publish_chain  # noqa: E402
 
 
 class StampAtPublishTimeTest(unittest.TestCase):
@@ -159,6 +162,90 @@ class DeferAndSweepTest(unittest.TestCase):
         self.assertTrue((self.ots_dir / f"{h2}.hash.ots").exists())
         self.assertEqual(anchor_ots.unanchored_entries(), [],
                           "sweep should have cleared the backlog completely")
+
+
+class CodeVersionDirtyScopeTest(unittest.TestCase):
+    """_code_version()'s dirty check must report "a tracked source file
+    has uncommitted changes", not "the run has written its own output
+    files yet" -- the bug behind chain entries 288-332's code_dirty: true.
+    Builds a real throwaway git repo (subprocess `git status` needs one)
+    and points publish_chain.REPO_ROOT at it; never touches this repo."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"],
+                        cwd=self.root, check=True)
+        subprocess.run(["git", "config", "user.name", "test"],
+                        cwd=self.root, check=True)
+        # One tracked "source" file, committed, plus the run-output paths
+        # exactly as RUN_OUTPUT_PATHS names them -- two are files
+        # (chain.jsonl, predictions.jsonl), three are directories.
+        (self.root / "nightshift").mkdir()
+        (self.root / "nightshift" / "config.py").write_text("THRESHOLD = 1\n")
+        (self.root / "reports").mkdir()
+        for rel in publish_chain.RUN_OUTPUT_PATHS:
+            path = self.root / rel
+            if path.suffix:
+                path.write_text("committed\n")
+            else:
+                path.mkdir(parents=True)
+                (path / "placeholder").write_text("committed\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.root, check=True)
+
+        self._patch = mock.patch.object(publish_chain, "REPO_ROOT", self.root)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+        publish_chain._code_version.cache_clear()
+
+    def _dirty(self):
+        # _code_version() is lru_cache(maxsize=1) -- per-process, by
+        # design (the answer can't change mid-run). Each assertion here
+        # represents a distinct simulated run, so clear it first.
+        publish_chain._code_version.cache_clear()
+        _, dirty = publish_chain._code_version()
+        return dirty
+
+    def test_clean_tree_is_not_dirty(self):
+        self.assertFalse(self._dirty())
+
+    def test_uncommitted_run_output_alone_is_not_dirty(self):
+        """The exact scenario behind entries 288-332: tonight's brief,
+        predictions.jsonl, chain.jsonl and OTS receipts written to disk,
+        not yet staged/committed by run_and_publish.sh's end-of-run git
+        add. Must now read as clean."""
+        (self.root / "nightshift" / "briefs" / "brief_20270101.txt").write_text("brief\n")
+        (self.root / "reports" / "chain.jsonl").write_text('{"n": 2}\n')
+        (self.root / "reports" / "ots" / "new.hash").write_text("deadbeef\n")
+        (self.root / "reports" / "audit" / "audit_20270101.json").write_text("{}\n")
+        self.assertFalse(self._dirty())
+
+    def test_uncommitted_source_change_is_dirty(self):
+        """A real edit to a tracked file outside RUN_OUTPUT_PATHS must
+        still trip dirty=True -- the fix narrows the check, it must not
+        silence it. (Same defect class inverted, per the brief: a flag
+        that's permanently false is as uninformative as one that's
+        permanently true.)"""
+        (self.root / "nightshift" / "config.py").write_text("THRESHOLD = 2\n")
+        self.assertTrue(self._dirty())
+
+    def test_untracked_source_file_is_dirty(self):
+        """A new, never-committed source file (not just an edit to an
+        existing one) must also trip dirty=True."""
+        (self.root / "nightshift" / "new_module.py").write_text("x = 1\n")
+        self.assertTrue(self._dirty())
+
+    def test_source_change_alongside_run_output_is_still_dirty(self):
+        """Mixed case: tonight's run output plus a genuine uncommitted
+        source edit. The output half must not mask the source half."""
+        (self.root / "reports" / "chain.jsonl").write_text('{"n": 2}\n')
+        (self.root / "nightshift" / "config.py").write_text("THRESHOLD = 3\n")
+        self.assertTrue(self._dirty())
 
 
 if __name__ == "__main__":

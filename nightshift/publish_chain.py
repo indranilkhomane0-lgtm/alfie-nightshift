@@ -39,6 +39,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PREDICTIONS_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
 GENESIS_HASH = "0" * 64
 
+# Paths the nightly run itself writes and stages, mirrored from
+# run_and_publish.sh's three `git add` lines (self-audit, --failed, and the
+# final brief commit). _code_version()'s dirty check excludes exactly these
+# -- see that function's docstring for why. Keep this list in sync with
+# run_and_publish.sh if its `git add` targets ever change.
+RUN_OUTPUT_PATHS = [
+    "nightshift/briefs",
+    "reports/chain.jsonl",
+    "reports/predictions.jsonl",
+    "reports/ots",
+    "reports/audit",
+]
+
 # This script runs two ways: directly (`python3 nightshift/publish_chain.py`,
 # invoked by run_and_publish.sh with cwd=repo root -- sys.path[0] becomes
 # nightshift/, not REPO_ROOT) and imported (`from nightshift.publish_chain
@@ -163,14 +176,38 @@ def _code_version():
     """(git HEAD sha, working-tree-dirty) for the code that wrote this entry.
     Cached per-process — the answer can't change mid-run. Never raises: if
     git is unavailable or the calls fail, both fields become "unknown" so
-    the entry still gets written rather than claiming a fact we don't have."""
+    the entry still gets written rather than claiming a fact we don't have.
+
+    dirty is scoped to exclude RUN_OUTPUT_PATHS (git status --porcelain
+    with a `:!<path>` exclude pathspec per entry). Without that exclusion
+    this was `git status --porcelain` over the whole tree, sampled by
+    append_entry() at publish time -- after cycle.py/label_outcomes.py/
+    void_predictions.py have already written tonight's brief,
+    predictions.jsonl, chain.jsonl and OTS receipts, but before
+    run_and_publish.sh's end-of-run `git add`/`commit` stages any of it
+    (see run_and_publish.sh's three git-add lines, mirrored into
+    RUN_OUTPUT_PATHS above). That ordering means the unscoped check was
+    reporting "a publish is in progress" -- true at that instant on
+    essentially every run -- not "this entry was produced by uncommitted
+    *code*", which is what a reader of the chain takes code_dirty to mean.
+    Chain entries 288-332 (every entry in that range, no exceptions) were
+    published with the unscoped check and carry code_dirty: true as a
+    result; see the METHODOLOGY_CHANGE entry disclosing this for the full
+    account. Those entries are not corrected retroactively -- the chain
+    is append-only -- this fixes the check going forward.
+
+    A change to a tracked file outside RUN_OUTPUT_PATHS, or a genuinely
+    uncommitted edit to this script itself, still trips dirty=True: the
+    exclusion is scoped to the run's own output, not a blanket pass."""
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT,
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout.strip()
+        status_args = ["git", "status", "--porcelain", "--", "."]
+        status_args += [f":!{p}" for p in RUN_OUTPUT_PATHS]
         dirty = bool(subprocess.run(
-            ["git", "status", "--porcelain"], cwd=REPO_ROOT,
+            status_args, cwd=REPO_ROOT,
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout.strip())
         return sha, dirty
