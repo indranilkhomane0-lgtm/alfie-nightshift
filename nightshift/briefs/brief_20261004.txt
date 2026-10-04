@@ -1,0 +1,26 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261004  ·  2026-10-04 00:01 UTC  ·  9s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  3 — CRISIS / BEAR  P=100%  days_in=4  trans_p=6%
+  Size mult: 20%  Vol target: 4% ann
+  Eligible: []
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 23 distinct labeled dates  STANDBY — need 30 dates
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+  No configs passed all gates tonight.
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
