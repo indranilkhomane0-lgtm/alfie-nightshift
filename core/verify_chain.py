@@ -60,6 +60,7 @@ import hashlib
 import json
 import statistics
 import sys
+import time
 from pathlib import Path
 
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
@@ -85,6 +86,38 @@ ANCHORING_START = "2026-07-28"
 OTS_MAGIC = bytes.fromhex(
     "004f70656e54696d657374616d7073000050726f6f6600bf89e2e884e89294"
 )
+
+# Attestation tag bytes from python-opentimestamps's own TimeAttestation
+# subclasses (opentimestamps/core/notary.py: PendingAttestation.TAG,
+# BitcoinBlockHeaderAttestation.TAG) -- a proof file contains one of
+# these as the leaf of each calendar's branch in its operation tree.
+# PENDING_TAG is written at stamp time and is NEVER removed by a later
+# `ots upgrade` -- an upgrade adds a CONFIRMED_TAG leaf alongside it, it
+# doesn't replace it. So PENDING_TAG's presence says nothing about
+# whether the proof is still pending; only CONFIRMED_TAG's presence (at
+# least one calendar's branch resolved to an actual Bitcoin block) means
+# that. Cross-checked against `ots info` on a random 40-file sample of
+# this repo's real reports/ots/ -- 0 mismatches between this raw-byte
+# search and the CLI's own classification. Structural only, like
+# OTS_MAGIC above: confirms the proof file EMBEDS a confirmed-attestation
+# structure, not that that structure's Bitcoin block header and merkle
+# path actually check out -- `ots verify <file>` against a real node (or
+# nightshift/anchor_ots.py's own opportunistic_upgrade(), which calls
+# `ots upgrade`, the same deeper check) is still the honest ceiling. The
+# anchor_ots.py bug these same two tags were pulled from fixing is
+# disclosed on the chain: self_audit.py's independent ots_proof_coverage
+# check (different code, same underlying tags) had failed every day
+# since 2026-08-01 while this file's single "receipted" number stayed
+# silent about it.
+PENDING_ATTESTATION_TAG = bytes.fromhex("83dfe30d2ef90c8e")
+CONFIRMED_ATTESTATION_TAG = bytes.fromhex("0588960d73d71901")
+
+# Mirrors nightshift/self_audit.py's OTS_GRACE_HOURS -- Bitcoin
+# confirmation is hours, not days, so a proof still pending past this
+# age is a real anchoring gap, not normal lag. Kept as the same value,
+# literally, for the same zero-repo-imports reason as every other
+# constant mirrored from elsewhere in this file.
+PENDING_GRACE_HOURS = 24
 
 # Original freeze, declared 2026-09-14 (chain entry 234, METHODOLOGY_CHANGE):
 # code frozen at this exact code_version (git HEAD sha at chain time), first
@@ -163,38 +196,58 @@ def _mean_median(values):
     return statistics.mean(values), statistics.median(values)
 
 
-def _receipt_status(entry_hash: str, ots_dir: Path) -> str:
-    """"receipted" | "missing" | "invalid" for one entry's OpenTimestamps
-    proof. Structural only -- see OTS_MAGIC above for exactly what this
-    does and doesn't confirm. Three ways to fail, all surfaced as
-    "invalid" rather than raising: the .hash sidecar exists but its
-    content doesn't match entry_hash (corrupted or mismatched sidecar);
-    the .hash.ots file is too short or doesn't start with OTS_MAGIC
-    (truncated, corrupted, or not actually an OTS proof); or the file
-    can't be read at all (permissions, race with a concurrent write)."""
+def _receipt_status(entry_hash: str, ots_dir: Path) -> tuple[str, float | None]:
+    """("missing" | "invalid" | "pending" | "confirmed", proof_age_hours)
+    for one entry's OpenTimestamps proof. proof_age_hours is None unless
+    status is "pending" -- it's the .hash.ots file's own mtime, not the
+    chain entry's published_at_utc, because a backfilled proof (stamped
+    well after its entry's original night, e.g. by a later backlog
+    sweep) is stamped today and cannot possibly be confirmed yet; ageing
+    it from the entry's publish date would flag it as stale the instant
+    it's written, which says nothing about whether anything is wrong.
+    Same convention as nightshift/self_audit.py's pending_past_grace.
+
+    Structural only -- see OTS_MAGIC and the two attestation tags above
+    for exactly what "confirmed" does and doesn't prove. Three ways to
+    fail, all surfaced as "invalid" rather than raising: the .hash
+    sidecar exists but its content doesn't match entry_hash (corrupted
+    or mismatched sidecar); the .hash.ots file is too short or doesn't
+    start with OTS_MAGIC (truncated, corrupted, or not actually an OTS
+    proof); or the file can't be read at all (permissions, race with a
+    concurrent write)."""
     ots_file = ots_dir / f"{entry_hash}.hash.ots"
     if not ots_file.exists():
-        return "missing"
+        return "missing", None
     try:
         hash_file = ots_dir / f"{entry_hash}.hash"
         if hash_file.exists() and hash_file.read_text().strip() != entry_hash:
-            return "invalid"
-        with ots_file.open("rb") as f:
-            header = f.read(len(OTS_MAGIC))
-        if header != OTS_MAGIC:
-            return "invalid"
+            return "invalid", None
+        raw = ots_file.read_bytes()
+        if raw[:len(OTS_MAGIC)] != OTS_MAGIC:
+            return "invalid", None
+        if CONFIRMED_ATTESTATION_TAG in raw:
+            return "confirmed", None
+        # A well-formed proof always embeds at least a pending calendar
+        # commitment (that's what `ots stamp` writes at publish time) --
+        # if neither tag is found, something about this file's structure
+        # is off in a way OTS_MAGIC alone didn't catch. Honest about that
+        # rather than silently calling it "pending".
+        if PENDING_ATTESTATION_TAG not in raw:
+            return "invalid", None
+        age_hours = (time.time() - ots_file.stat().st_mtime) / 3600
+        return "pending", age_hours
     except Exception:
-        return "invalid"
-    return "receipted"
+        return "invalid", None
 
 
 def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     """Walk the chain from genesis, verifying every hash link, and return
     every number main() prints. Raises ChainBroken at the first mismatch."""
     prev = GENESIS_HASH
-    receipt_counts = {"receipted": 0, "missing": 0, "invalid": 0}
+    receipt_counts = {"confirmed": 0, "pending": 0, "missing": 0, "invalid": 0}
     missing_entries = []   # 1-based line numbers, for "visible in the output"
     invalid_entries = []
+    stale_pending_entries = []  # 1-based line numbers, pending past PENDING_GRACE_HOURS
     predates_anchoring = 0
     wins = losses = waits = failures = 0
     code_versions = {}  # code_version -> 1-based index of first appearance
@@ -232,12 +285,14 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
             if entry.get("published_at_utc", "")[:10] < ANCHORING_START:
                 predates_anchoring += 1
             else:
-                status = _receipt_status(entry["entry_hash"], ots_dir)
+                status, age_hours = _receipt_status(entry["entry_hash"], ots_dir)
                 receipt_counts[status] += 1
                 if status == "missing":
                     missing_entries.append(i)
                 elif status == "invalid":
                     invalid_entries.append(i)
+                elif status == "pending" and age_hours is not None and age_hours > PENDING_GRACE_HOURS:
+                    stale_pending_entries.append(i)
 
             p = entry["payload"]
             cv = p.get("code_version", "(predates code_version)")
@@ -312,6 +367,7 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "receipt_counts": receipt_counts,
         "missing_receipt_entries": missing_entries,
         "invalid_receipt_entries": invalid_entries,
+        "stale_pending_entries": stale_pending_entries,
         "predates_anchoring": predates_anchoring,
         "return_stats": {
             "win": (*_mean_median(win_returns), len(win_returns)),
@@ -374,26 +430,42 @@ def main() -> int:
         )
 
     rc = stats["receipt_counts"]
+    structurally_present = rc["confirmed"] + rc["pending"]
     print(
-        f"OTS receipts (entries since {ANCHORING_START}): {rc['receipted']} receipted / "
-        f"{rc['missing']} missing / {rc['invalid']} invalid "
+        f"OTS receipts (entries since {ANCHORING_START}): {structurally_present} structurally "
+        f"present / {rc['missing']} missing / {rc['invalid']} invalid "
         f"({stats['predates_anchoring']} entries predate anchoring, no receipt expected, "
         f"not backfilled)"
     )
+    print(
+        f"  of those: {rc['confirmed']} confirmed (Bitcoin-attested) / "
+        f"{rc['pending']} pending (calendar-committed only, not yet attested)"
+    )
+    if stats["stale_pending_entries"]:
+        n = len(stats["stale_pending_entries"])
+        print(
+            f"  STALE: {n} of the {rc['pending']} pending receipt(s) are more than "
+            f"{PENDING_GRACE_HOURS}h old and should have confirmed by now -- a real "
+            f"anchoring gap, not normal Bitcoin-confirmation lag. If they still can't "
+            f"upgrade, that's reported here, not quietly dropped: entry line(s) "
+            f"{stats['stale_pending_entries']}"
+        )
     if stats["missing_receipt_entries"]:
         print(f"  MISSING: entry line(s) {stats['missing_receipt_entries']}")
     if stats["invalid_receipt_entries"]:
         print(f"  INVALID: entry line(s) {stats['invalid_receipt_entries']}")
-    if rc["missing"] or rc["invalid"]:
+    if rc["missing"] or rc["invalid"] or stats["stale_pending_entries"]:
         print(
             "  a receipt gap here is not fatal to the chain -- the hash chain "
             "itself is unaffected -- but it is a real anchoring gap until "
             "nightshift/anchor_ots.py's next sweep clears it"
         )
     print(
-        "  structural check only: confirms a well-formed OTS proof file "
-        "exists, not that Bitcoin has attested to it -- run `ots verify "
-        "<file>` yourself for that"
+        "  structural check only: confirms a well-formed OTS proof file exists "
+        "and, for 'confirmed', that it embeds a Bitcoin-attestation structure -- "
+        "not that attestation's block header and merkle path actually check out "
+        "against the real blockchain. Run `ots verify <file>` against a Bitcoin "
+        "node yourself for that deeper check"
     )
 
     rs = stats["return_stats"]

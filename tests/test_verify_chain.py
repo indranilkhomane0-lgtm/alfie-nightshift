@@ -16,8 +16,10 @@ Run directly:
 """
 import hashlib
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -26,7 +28,8 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 from verify_chain import (  # noqa: E402
     compute_stats, FROZEN_CODE_VERSION, FROZEN_STRATEGY_VERSION,
-    ANCHORING_START, OTS_MAGIC,
+    ANCHORING_START, OTS_MAGIC, PENDING_ATTESTATION_TAG,
+    CONFIRMED_ATTESTATION_TAG, PENDING_GRACE_HOURS,
 )
 from nightshift.strategy_version import (  # noqa: E402
     compute_strategy_version, STRATEGY_VERSION_FILES,
@@ -287,49 +290,118 @@ class StrategyVersionFileHashTest(unittest.TestCase):
 class ReceiptVerificationTest(unittest.TestCase):
     """Task 3: a missing or invalid OTS receipt must be visible in
     compute_stats()'s output (what main() prints from), not silently
-    passed over -- and pre-anchoring entries must not count as gaps."""
+    passed over -- and pre-anchoring entries must not count as gaps.
+    Also: confirmed vs pending vs stale-pending (the 2026-10-06 fix),
+    using real attestation tag bytes rather than full binary proof
+    structure -- _receipt_status() only ever looks for those tags'
+    presence, so a minimal synthetic file exercises the same code path
+    a real `ots stamp`/`ots upgrade` output would."""
 
-    def _write_receipt(self, ots_dir, entry_hash, *, ok=True, magic=None,
-                        sidecar=None):
+    def _write_receipt(self, ots_dir, entry_hash, *, state="pending", magic=None,
+                        sidecar=None, mtime=None):
+        """state: "confirmed" (has both tags, like a real upgraded proof --
+        the pending leaf is never removed), "pending" (has only the
+        pending tag, like a fresh `ots stamp`), "bad_magic" (wrong
+        header), or "no_attestation_tag" (right header, neither tag --
+        the "structurally off in a way OTS_MAGIC alone didn't catch"
+        case)."""
         ots_dir.mkdir(parents=True, exist_ok=True)
         (ots_dir / f"{entry_hash}.hash").write_text(
             entry_hash if sidecar is None else sidecar
         )
-        content = OTS_MAGIC + b"\x00" * 20 if ok else (magic or b"not-an-ots-file-at-all-")
-        (ots_dir / f"{entry_hash}.hash.ots").write_bytes(content)
+        if state == "confirmed":
+            content = OTS_MAGIC + PENDING_ATTESTATION_TAG + CONFIRMED_ATTESTATION_TAG + b"\x00" * 8
+        elif state == "pending":
+            content = OTS_MAGIC + PENDING_ATTESTATION_TAG + b"\x00" * 20
+        elif state == "no_attestation_tag":
+            content = OTS_MAGIC + b"\x00" * 20
+        else:  # bad_magic
+            content = magic or b"not-an-ots-file-at-all-"
+        ots_file = ots_dir / f"{entry_hash}.hash.ots"
+        ots_file.write_bytes(content)
+        if mtime is not None:
+            os.utime(ots_file, (mtime, mtime))
 
-    def test_receipted_missing_invalid_all_counted_and_listed(self):
+    def test_confirmed_pending_missing_invalid_all_counted_and_listed(self):
         with tempfile.TemporaryDirectory() as tmp:
             ots_dir = Path(tmp) / "ots"
-            payloads = [{"type": "X", "n": 1}, {"type": "X", "n": 2}, {"type": "X", "n": 3}]
+            payloads = [{"type": "X", "n": i} for i in range(4)]
             chain_path = _write_chain(payloads, published_at_utc=POST_ANCHORING_DATE)
             hashes = [json.loads(l)["entry_hash"] for l in chain_path.read_text().splitlines()]
 
-            self._write_receipt(ots_dir, hashes[0], ok=True)
-            # hashes[1]: no receipt written at all -> missing
-            self._write_receipt(ots_dir, hashes[2], ok=False)  # bad magic -> invalid
+            self._write_receipt(ots_dir, hashes[0], state="confirmed")
+            self._write_receipt(ots_dir, hashes[1], state="pending")
+            # hashes[2]: no receipt written at all -> missing
+            self._write_receipt(ots_dir, hashes[3], state="bad_magic")  # -> invalid
 
             stats = compute_stats(chain_path, ots_dir=ots_dir)
 
         self.assertEqual(stats["receipt_counts"],
-                          {"receipted": 1, "missing": 1, "invalid": 1})
-        self.assertEqual(stats["missing_receipt_entries"], [2])
-        self.assertEqual(stats["invalid_receipt_entries"], [3])
+                          {"confirmed": 1, "pending": 1, "missing": 1, "invalid": 1})
+        self.assertEqual(stats["missing_receipt_entries"], [3])
+        self.assertEqual(stats["invalid_receipt_entries"], [4])
         self.assertEqual(stats["predates_anchoring"], 0)
 
-    def test_mismatched_sidecar_is_invalid_not_receipted(self):
-        """A .hash file that exists but doesn't match the entry's own
-        hash is corruption, not absence -- must not read as a pass."""
+    def test_fresh_pending_receipt_is_not_flagged_stale(self):
+        """A receipt stamped moments ago, still pending, is normal --
+        must not appear in stale_pending_entries."""
         with tempfile.TemporaryDirectory() as tmp:
             ots_dir = Path(tmp) / "ots"
             chain_path = _write_chain([{"type": "X"}], published_at_utc=POST_ANCHORING_DATE)
             entry_hash = json.loads(chain_path.read_text())["entry_hash"]
-            self._write_receipt(ots_dir, entry_hash, ok=True, sidecar="wrong-hash-entirely")
+            self._write_receipt(ots_dir, entry_hash, state="pending", mtime=time.time())
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["receipt_counts"]["pending"], 1)
+        self.assertEqual(stats["stale_pending_entries"], [])
+
+    def test_old_pending_receipt_past_grace_is_flagged_stale(self):
+        """The regression this fix is for: a pending receipt old enough
+        that it should have confirmed by now (same semantics as
+        self_audit.py's pending_past_grace) must be visible, not folded
+        silently into the same "pending" bucket as a brand-new one --
+        'no backfill of claims, say so instead of quietly excluding'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"
+            chain_path = _write_chain([{"type": "X"}], published_at_utc=POST_ANCHORING_DATE)
+            entry_hash = json.loads(chain_path.read_text())["entry_hash"]
+            stale_mtime = time.time() - (PENDING_GRACE_HOURS + 1) * 3600
+            self._write_receipt(ots_dir, entry_hash, state="pending", mtime=stale_mtime)
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["receipt_counts"]["pending"], 1)
+        self.assertEqual(stats["stale_pending_entries"], [1])
+
+    def test_mismatched_sidecar_is_invalid_not_confirmed(self):
+        """A .hash file that exists but doesn't match the entry's own
+        hash is corruption, not absence -- must not read as a pass,
+        even on an otherwise-confirmed-looking proof."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"
+            chain_path = _write_chain([{"type": "X"}], published_at_utc=POST_ANCHORING_DATE)
+            entry_hash = json.loads(chain_path.read_text())["entry_hash"]
+            self._write_receipt(ots_dir, entry_hash, state="confirmed", sidecar="wrong-hash-entirely")
 
             stats = compute_stats(chain_path, ots_dir=ots_dir)
 
         self.assertEqual(stats["receipt_counts"]["invalid"], 1)
-        self.assertEqual(stats["receipt_counts"]["receipted"], 0)
+        self.assertEqual(stats["receipt_counts"]["confirmed"], 0)
+
+    def test_well_formed_header_but_no_attestation_tag_is_invalid(self):
+        """Right OTS_MAGIC header, but neither attestation tag present --
+        not a shape any real `ots stamp` output produces. Must be
+        reported honestly as invalid, not silently guessed as pending."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ots_dir = Path(tmp) / "ots"
+            chain_path = _write_chain([{"type": "X"}], published_at_utc=POST_ANCHORING_DATE)
+            entry_hash = json.loads(chain_path.read_text())["entry_hash"]
+            self._write_receipt(ots_dir, entry_hash, state="no_attestation_tag")
+
+            stats = compute_stats(chain_path, ots_dir=ots_dir)
+
+        self.assertEqual(stats["receipt_counts"]["invalid"], 1)
 
     def test_pre_anchoring_entries_excluded_not_flagged_as_gaps(self):
         """No backfill: an entry from before ANCHORING_START has no
@@ -341,13 +413,13 @@ class ReceiptVerificationTest(unittest.TestCase):
                 payloads, published_at_utc=[PRE_ANCHORING_DATE, POST_ANCHORING_DATE]
             )
             hashes = [json.loads(l)["entry_hash"] for l in chain_path.read_text().splitlines()]
-            self._write_receipt(ots_dir, hashes[1], ok=True)  # only the post-anchoring one
+            self._write_receipt(ots_dir, hashes[1], state="confirmed")  # only the post-anchoring one
 
             stats = compute_stats(chain_path, ots_dir=ots_dir)
 
         self.assertEqual(stats["predates_anchoring"], 1)
         self.assertEqual(stats["receipt_counts"],
-                          {"receipted": 1, "missing": 0, "invalid": 0})
+                          {"confirmed": 1, "pending": 0, "missing": 0, "invalid": 0})
         self.assertEqual(stats["missing_receipt_entries"], [])
 
     def test_real_ots_magic_constant_matches_a_real_receipt_in_this_repo(self):
@@ -361,6 +433,23 @@ class ReceiptVerificationTest(unittest.TestCase):
             self.skipTest("no real .hash.ots files in this checkout to check against")
         header = real_files[0].read_bytes()[:len(OTS_MAGIC)]
         self.assertEqual(header, OTS_MAGIC)
+
+    def test_real_attestation_tags_match_real_pending_and_confirmed_receipts(self):
+        """PENDING_ATTESTATION_TAG and CONFIRMED_ATTESTATION_TAG must
+        agree with what's actually in this repo's real receipts -- every
+        real receipt has the pending tag (every `ots stamp` writes one
+        and it's never removed), and at least one real receipt in a
+        chain this old should by now have been upgraded to confirmed.
+        Skips gracefully on a checkout with no real receipts."""
+        real_ots_dir = ROOT / "reports" / "ots"
+        real_files = list(real_ots_dir.glob("*.hash.ots")) if real_ots_dir.exists() else []
+        if not real_files:
+            self.skipTest("no real .hash.ots files in this checkout to check against")
+        bodies = [f.read_bytes() for f in real_files]
+        self.assertTrue(all(PENDING_ATTESTATION_TAG in b for b in bodies),
+                         "every real receipt should carry the original pending-commitment tag")
+        self.assertTrue(any(CONFIRMED_ATTESTATION_TAG in b for b in bodies),
+                         "at least one real receipt in this repo should be Bitcoin-confirmed by now")
 
 
 if __name__ == "__main__":

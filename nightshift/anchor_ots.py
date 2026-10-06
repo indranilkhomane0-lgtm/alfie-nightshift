@@ -158,7 +158,26 @@ def opportunistic_upgrade(ots_bin: str) -> None:
     time available for stamping missing proofs. Examining oldest-first
     means tonight's own (necessarily still-pending) proof, being newest,
     is tried last and simply rolls over to a later run if the budget
-    runs out first -- it couldn't have confirmed yet anyway."""
+    runs out first -- it couldn't have confirmed yet anyway.
+
+    Skip check: a proof is done once it contains ANY attestation that
+    verifies (one calendar confirming is sufficient -- that calendar's
+    branch alone proves the hash existed before that Bitcoin block).
+    `ots upgrade` never removes the original calendar-commitment leaf
+    when it adds a confirmed one alongside it, so "PendingAttestation"
+    is a substring of `ots info`'s output FOREVER, confirmed or not --
+    checking for its ABSENCE (the previous condition here) is checking
+    for something that is never true, so nothing was ever skipped. Every
+    run re-attempted `ots upgrade` against the full candidate list from
+    scratch, oldest-mtime first, and the 30s budget was spent re-walking
+    the already-confirmed prefix before ever reaching a real pending
+    entry. Confirmed against the live chain on 2026-10-06: 193 of 336
+    receipts were genuinely still pending, 182 of them >48h old, and
+    self_audit.py's independent ots_proof_coverage check (different
+    code, correct logic) had been FAIL every single day since
+    2026-08-01 as a result (finding_count climbing 4 -> 191). The
+    correct check is the presence of a CONFIRMED attestation, not the
+    absence of a pending one."""
     candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime)
     start = time.monotonic()
     for ots_file in candidates:
@@ -171,8 +190,8 @@ def opportunistic_upgrade(ots_bin: str) -> None:
                 [ots_bin, "info", str(ots_file)],
                 capture_output=True, text=True, timeout=10,
             )
-            if "PendingAttestation" not in info.stdout:
-                continue  # already complete, nothing to do
+            if "BitcoinBlockHeaderAttestation" in info.stdout:
+                continue  # already has a confirmed attestation, nothing more to do
         except Exception:
             continue
 
