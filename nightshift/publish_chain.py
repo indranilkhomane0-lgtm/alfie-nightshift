@@ -37,6 +37,7 @@ from pathlib import Path
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PREDICTIONS_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
+CORPUS_DELTA_PATH = Path(__file__).resolve().parent.parent / "reports" / "archive" / "corpus_delta.jsonl"
 GENESIS_HASH = "0" * 64
 
 # Paths the nightly run itself writes and stages, mirrored from
@@ -50,6 +51,7 @@ RUN_OUTPUT_PATHS = [
     "reports/predictions.jsonl",
     "reports/ots",
     "reports/audit",
+    "reports/archive",
 ]
 
 # This script runs two ways: directly (`python3 nightshift/publish_chain.py`,
@@ -258,18 +260,51 @@ def _predictions_snapshot():
     return n, hashlib.sha256(data).hexdigest(), None
 
 
+def _corpus_delta_snapshot():
+    """(line count, sha256, read_error) for reports/archive/corpus_delta.jsonl
+    at the moment this entry is chained -- same reference-by-hash pattern
+    as _predictions_snapshot(), applied to the corpus-delta archive
+    nightshift/archive_corpus.py writes (every mc_passed candidate the
+    cycle inserted into corpus.db that night, not just the published
+    one -- see that module's docstring for the full design and its
+    honest limits).
+
+    Missing file -> (None, None, "<reason>"), never raises, entry still
+    gets written -- same fail-safe shape as every other snapshot here.
+    A missing file is the EXPECTED state for every entry chained before
+    this feature existed (no backfill: those entries simply lack these
+    fields, exactly like predictions_n/predictions_sha256 are absent on
+    chain entries before entry 13) and is equally expected for a few
+    hours after a disk-full or permission failure on the archiver's own
+    write, before its next self-healing sweep catches up -- both cases
+    read identically here by design; nightshift/archive_corpus.py's own
+    log is where that distinction, if it matters, gets resolved."""
+    try:
+        data = CORPUS_DELTA_PATH.read_bytes()
+    except FileNotFoundError:
+        return None, None, "corpus_delta.jsonl does not exist yet"
+    except Exception as exc:
+        return None, None, f"could not read corpus_delta.jsonl: {exc!r}"
+    n = sum(1 for line in data.splitlines() if line.strip())
+    return n, hashlib.sha256(data).hexdigest(), None
+
+
 def append_entry(payload: dict) -> dict:
     prev = last_hash()
     sha, dirty = _code_version()
     n, preds_sha256, read_error = _predictions_snapshot()
+    cdn, cd_sha256, cd_read_error = _corpus_delta_snapshot()
     payload = {
         **payload,
         "code_version": sha, "code_dirty": dirty,
         "strategy_version": _strategy_version(),
         "predictions_n": n, "predictions_sha256": preds_sha256,
+        "corpus_delta_n": cdn, "corpus_delta_sha256": cd_sha256,
     }
     if read_error:
         payload["predictions_read_error"] = read_error
+    if cd_read_error:
+        payload["corpus_delta_read_error"] = cd_read_error
     entry = {
         "published_at_utc": datetime.now(timezone.utc).isoformat(),
         "prev_hash": prev,

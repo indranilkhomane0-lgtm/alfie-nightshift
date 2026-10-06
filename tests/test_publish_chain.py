@@ -248,5 +248,64 @@ class CodeVersionDirtyScopeTest(unittest.TestCase):
         self.assertTrue(self._dirty())
 
 
+class CorpusDeltaSnapshotTest(unittest.TestCase):
+    """_corpus_delta_snapshot()'s (n, sha256, read_error) for the
+    corpus-delta archive -- same reference-by-hash pattern as
+    _predictions_snapshot(), including append_entry() wiring both
+    corpus_delta_n and corpus_delta_sha256 into every chained payload."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.archive_path = Path(self._tmp.name) / "corpus_delta.jsonl"
+        self._patch = mock.patch.object(publish_chain, "CORPUS_DELTA_PATH", self.archive_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_missing_file_reports_none_not_zero(self):
+        """Absent entirely before this feature existed, or for a window
+        after a write failure before the next sweep -- must read as
+        (None, None, reason), never as (0, <hash-of-empty>, None), which
+        would misreport 'never existed' as 'exists and is empty'."""
+        n, sha, err = publish_chain._corpus_delta_snapshot()
+        self.assertIsNone(n)
+        self.assertIsNone(sha)
+        self.assertIsNotNone(err)
+
+    def test_present_file_hashes_and_counts_lines(self):
+        import hashlib
+        self.archive_path.write_text('{"kind":"cycle_marker"}\n{"kind":"candidate"}\n')
+        n, sha, err = publish_chain._corpus_delta_snapshot()
+        self.assertEqual(n, 2)
+        self.assertEqual(sha, hashlib.sha256(self.archive_path.read_bytes()).hexdigest())
+        self.assertIsNone(err)
+
+    def test_append_entry_includes_corpus_delta_fields(self):
+        """End to end through the real append_entry(), same as
+        predictions_n/predictions_sha256 -- a reader of the chain gets
+        both fields on every entry, not just NIGHTLY_BRIEF ones."""
+        self.archive_path.write_text('{"kind":"cycle_marker"}\n')
+        with tempfile.TemporaryDirectory() as chain_tmp:
+            chain_path = Path(chain_tmp) / "chain.jsonl"
+            with mock.patch.object(publish_chain, "CHAIN_PATH", chain_path), \
+                 mock.patch.object(publish_chain, "_stamp_at_publish_time", return_value=False):
+                entry = publish_chain.append_entry({"type": "TEST"})
+        self.assertEqual(entry["payload"]["corpus_delta_n"], 1)
+        self.assertIsNotNone(entry["payload"]["corpus_delta_sha256"])
+        self.assertNotIn("corpus_delta_read_error", entry["payload"])
+
+    def test_append_entry_missing_archive_sets_read_error_not_blocked(self):
+        with tempfile.TemporaryDirectory() as chain_tmp:
+            chain_path = Path(chain_tmp) / "chain.jsonl"
+            with mock.patch.object(publish_chain, "CHAIN_PATH", chain_path), \
+                 mock.patch.object(publish_chain, "_stamp_at_publish_time", return_value=False):
+                entry = publish_chain.append_entry({"type": "TEST"})
+        self.assertIsNone(entry["payload"]["corpus_delta_n"])
+        self.assertIsNone(entry["payload"]["corpus_delta_sha256"])
+        self.assertIn("corpus_delta_read_error", entry["payload"])
+
+
 if __name__ == "__main__":
     unittest.main()

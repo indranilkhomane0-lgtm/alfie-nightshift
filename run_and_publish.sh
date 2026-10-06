@@ -171,6 +171,18 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# ARCHIVE -- read back every mc_passed candidate this cycle inserted into
+# corpus.db (not just the published one) into the append-only corpus-delta
+# archive, before the brief is chained -- publish_chain.py's append_entry()
+# hashes whatever's on disk at that moment, same ordering dependency
+# predictions.jsonl already has. Self-healing (sweeps any prior night's
+# gap too) and never fails the night -- see nightshift/archive_corpus.py.
+if [ $DRY -eq 1 ]; then
+  echo "DRY RUN -- would run archive_corpus.py" >> "$LOG"
+else
+  "$PY" nightshift/archive_corpus.py >> "$LOG" 2>&1 || true
+fi
+
 # CHAIN -- append tonight's brief to the tamper-evident record
 # (duplicate-guard: skip if this brief is already chained anywhere in the
 # file -- label_outcomes.py below appends LABELED_OUTCOME entries after the
@@ -199,7 +211,7 @@ else
   "$PY" nightshift/label_outcomes.py >> "$LOG" 2>&1
 fi
 
-git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ reports/audit/ >> "$LOG" 2>&1
+git add nightshift/briefs/ reports/chain.jsonl reports/predictions.jsonl reports/ots/ reports/audit/ reports/archive/ >> "$LOG" 2>&1
 if git diff --cached --quiet; then echo "No new brief -- nothing to publish" >> "$LOG"; exit 0; fi
 
 if [ $DRY -eq 1 ]; then echo "DRY RUN -- would publish:" >> "$LOG"; git diff --cached --name-only >> "$LOG"; git reset -q; exit 0; fi
