@@ -19,34 +19,43 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Four freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2, and
-FROZEN_STRATEGY_VERSION below. The first freeze (chain entry 234) was
-declared against code_version, the git HEAD sha at chain time. That
-conflates strategy changes with every tooling/infra commit made under the
-freeze, silently: an anchoring fix or a logging tweak moves code_version
-exactly as much as a change to signal logic would, so code_version cannot
-actually tell the two apart. The first correction (the entry immediately
-after 234) repointed the freeze to strategy_version -- a content hash over
-only the files that can change what signal gets emitted (see
-nightshift/strategy_version.py), computed independently of git history.
-That hash is now FROZEN_STRATEGY_VERSION_V1: its surface excluded
-nightshift/meta_model.py, traced and confirmed non-causal (it gates
-nothing today -- see that module's docstring). The second correction
-added meta_model.py back as a conservative buffer against a future wiring
-change moving the system without moving the hash, which produced
-FROZEN_STRATEGY_VERSION_V2. The third correction (2026-09-23) fixed a
-frozen-surface file (cycle.py) directly rather than repointing which
-files are hashed: the nightly brief's meta-model progress line called
-corpus_size() -- a permanently-zero, LiveMonitor-dependent counter
-disclosed as dead in the 2026-08-01 METHODOLOGY_CHANGE -- where it should
-have called labeled_prediction_date_count(), the counter the meta-model's
-own training gate actually uses. A permitted display/logging fix (entry
-234's permitted-during-freeze terms), but cycle.py is hashed whole with
-no carve-out for non-causal spans (see strategy_version.py: "glue code is
-as signal-determining as the logic it calls"), so fixing it moved the
-hash regardless of the change being cosmetic. That produced the current
-value, FROZEN_STRATEGY_VERSION. All four constants and all four filtered
+Five freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
+FROZEN_STRATEGY_VERSION_V3, and FROZEN_STRATEGY_VERSION below. The first
+freeze (chain entry 234) was declared against code_version, the git HEAD
+sha at chain time. That conflates strategy changes with every
+tooling/infra commit made under the freeze, silently: an anchoring fix or
+a logging tweak moves code_version exactly as much as a change to signal
+logic would, so code_version cannot actually tell the two apart. The
+first correction (the entry immediately after 234) repointed the freeze
+to strategy_version -- a content hash over only the files that can change
+what signal gets emitted (see nightshift/strategy_version.py), computed
+independently of git history. That hash is now FROZEN_STRATEGY_VERSION_V1:
+its surface excluded nightshift/meta_model.py, traced and confirmed
+non-causal (it gates nothing today -- see that module's docstring). The
+second correction added meta_model.py back as a conservative buffer
+against a future wiring change moving the system without moving the
+hash, which produced FROZEN_STRATEGY_VERSION_V2. The third correction
+(2026-09-23) fixed a frozen-surface file (cycle.py) directly rather than
+repointing which files are hashed: the nightly brief's meta-model
+progress line called corpus_size() -- a permanently-zero,
+LiveMonitor-dependent counter disclosed as dead in the 2026-08-01
+METHODOLOGY_CHANGE -- where it should have called
+labeled_prediction_date_count(), the counter the meta-model's own
+training gate actually uses. A permitted display/logging fix (entry 234's
+permitted-during-freeze terms), but cycle.py is hashed whole with no
+carve-out for non-causal spans (see strategy_version.py: "glue code is as
+signal-determining as the logic it calls"), so fixing it moved the hash
+regardless of the change being cosmetic. That produced
+FROZEN_STRATEGY_VERSION_V3. The fourth correction added
+nightshift/stamp_prediction.py's raw-OHLCV archiving call (archiving the
+exact closed-bar window _context_hash() hashes, into
+reports/archive/ohlcv.csv.gz, so a third party can verify a call instead
+of trusting context_hash alone) -- again a change to a frozen-surface
+file with zero effect on what signal gets computed or which call gets
+published, and again moving the hash regardless, for the same
+no-carve-out reason as the third correction. That produced the current
+value, FROZEN_STRATEGY_VERSION. All five constants and all five filtered
 sections stay: each slice is real history that already happened under
 those terms and does not get erased by the next correction. Note what
 does NOT reset here, since it's easy to conflate with what does:
@@ -163,10 +172,29 @@ FROZEN_STRATEGY_VERSION_V2 = "e66ce4f8754a4445b21d5a1c1c0b166afc36e856b588814c71
 # interleaved with prediction-stamping that depends on the same local
 # state, and strategy_version.py hashes cycle.py whole with no carve-out
 # for non-causal spans ("glue code is as signal-determining as the logic
-# it calls"). The fix was made in place and disclosed. This is the value
-# that actually governs the freeze from this correction forward. Literal
+# it calls"). The fix was made in place and disclosed. Governed the
+# freeze from that correction until the fourth below. Superseded --
+# kept, filter and all, for the same real-history reason the constants
+# above were kept rather than dropped.
+FROZEN_STRATEGY_VERSION_V3 = "06d869d35c9922053016cd0b316ea5ceffc6b58906239dbbe2e12e65359887e5"
+
+# Fourth correction, declared 2026-10-06/07: approved explicitly as an
+# archiving-only freeze reset ("breaking a freeze while the slice is
+# n=18 costs less than breaking one that has become the headline
+# number" -- the meta-model graduates at n=30 labeled dates and this
+# landed ahead of that on purpose). nightshift/stamp_prediction.py
+# gained one import and one call (archive_closed_bars(), see
+# nightshift/archive_ohlcv.py) at the exact point `closed` -- the window
+# _context_hash() is about to hash -- is already in hand, so the
+# archived bytes are provably the same ones a call's context_hash
+# commits to, not an independent re-fetch. No change to entry_signal(),
+# direction, entry_price, or which config gets ranked/selected -- this
+# moves the hash for the same no-carve-out reason the third correction
+# did (cycle.py/stamp_prediction.py are hashed whole), not because
+# anything about how a call is made, changed. This is the value that
+# actually governs the freeze from this correction forward. Literal
 # here for the same zero-repo-imports reason as the constants above.
-FROZEN_STRATEGY_VERSION = "06d869d35c9922053016cd0b316ea5ceffc6b58906239dbbe2e12e65359887e5"
+FROZEN_STRATEGY_VERSION = "2dd2221ce744f26e5dad3367a080a118329f22c9020860a0e950c2797985fee0"
 
 # Meta-model graduation gate (nightshift/config.py META_MIN_SAMPLES) --
 # distinct labeled dates, not distinct calls or rows: same-night calls
@@ -354,6 +382,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv1_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V1)
     frozen_sv2_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V2)
     frozen_sv2_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V2)
+    frozen_sv3_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V3)
+    frozen_sv3_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V3)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -384,6 +414,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v2_return_stats": {
             "win": (*_mean_median(frozen_sv2_win), len(frozen_sv2_win)),
             "loss": (*_mean_median(frozen_sv2_loss), len(frozen_sv2_loss)),
+        },
+        "frozen_strategy_version_v3_return_stats": {
+            "win": (*_mean_median(frozen_sv3_win), len(frozen_sv3_win)),
+            "loss": (*_mean_median(frozen_sv3_loss), len(frozen_sv3_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -497,10 +531,18 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs2rs['win'])}")
     print(f"  losses: {_print_return_stats(fs2rs['loss'])}")
 
+    fs3rs = stats["frozen_strategy_version_v3_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V3[:12]} only "
+          f"-- third correction (cycle.py brief-display fix, corpus_size() -> "
+          f"labeled_prediction_date_count()), superseded; kept for history):")
+    print(f"  wins:   {_print_return_stats(fs3rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs3rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- third correction (cycle.py brief-display fix, corpus_size() -> "
-          f"labeled_prediction_date_count()); current frozen strategy version):")
+          f"-- fourth correction (raw-OHLCV archiving added to "
+          f"stamp_prediction.py, archiving-only, no change to signal logic); "
+          f"current frozen strategy version):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 

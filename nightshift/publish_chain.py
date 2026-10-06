@@ -38,6 +38,7 @@ CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PREDICTIONS_PATH = Path(__file__).resolve().parent.parent / "reports" / "predictions.jsonl"
 CORPUS_DELTA_PATH = Path(__file__).resolve().parent.parent / "reports" / "archive" / "corpus_delta.jsonl"
+OHLCV_ARCHIVE_PATH = Path(__file__).resolve().parent.parent / "reports" / "archive" / "ohlcv.csv.gz"
 GENESIS_HASH = "0" * 64
 
 # Paths the nightly run itself writes and stages, mirrored from
@@ -289,20 +290,67 @@ def _corpus_delta_snapshot():
     return n, hashlib.sha256(data).hexdigest(), None
 
 
+def _ohlcv_archive_snapshot():
+    """(decompressed row count, sha256-of-raw-file, read_error) for
+    reports/archive/ohlcv.csv.gz -- same reference-by-hash pattern as
+    _predictions_snapshot()/_corpus_delta_snapshot(), applied to the raw
+    OHLCV archive nightshift/archive_ohlcv.py writes from
+    nightshift/stamp_prediction.py's stamp() (the exact closed-bar
+    window each prediction's context_hash was computed from, not a
+    re-fetch -- see that module's docstring).
+
+    The sha256 is over the file's raw bytes on disk -- the gzip stream
+    actually committed to git and actually verified by a third party --
+    not the decompressed content; gzip permits appending a new member
+    per night (see archive_ohlcv.py), so the raw bytes change every
+    night new bars are archived even though old members are never
+    touched. The row count IS over the decompressed content (one row
+    per archived closed bar, across every asset and night so far) --
+    decompression cost stays bounded by the archive's own small size
+    (tens of MB even after years at this cadence), same tradeoff
+    self_audit.py's OTS checks already accept for a deeper-than-byte
+    answer.
+
+    Missing file -> (None, None, "<reason>"), never raises -- same
+    fail-safe shape and same "no backfill" meaning as
+    _corpus_delta_snapshot(): expected on every entry before this
+    feature existed, and expected for a window after a write failure
+    before the only recovery this archive has (see archive_ohlcv.py's
+    documented limit: unlike corpus_delta/OTS, a full night's failure
+    here cannot be swept later)."""
+    try:
+        data = OHLCV_ARCHIVE_PATH.read_bytes()
+    except FileNotFoundError:
+        return None, None, "ohlcv.csv.gz does not exist yet"
+    except Exception as exc:
+        return None, None, f"could not read ohlcv.csv.gz: {exc!r}"
+    try:
+        import gzip
+        decompressed = gzip.decompress(data)
+        n = sum(1 for line in decompressed.splitlines() if line.strip())
+    except Exception as exc:
+        return None, None, f"could not decompress ohlcv.csv.gz: {exc!r}"
+    return n, hashlib.sha256(data).hexdigest(), None
+
+
 def append_entry(payload: dict) -> dict:
     prev = last_hash()
     sha, dirty = _code_version()
     n, preds_sha256, read_error = _predictions_snapshot()
     cdn, cd_sha256, cd_read_error = _corpus_delta_snapshot()
+    on, oh_sha256, oh_read_error = _ohlcv_archive_snapshot()
     payload = {
         **payload,
         "code_version": sha, "code_dirty": dirty,
         "strategy_version": _strategy_version(),
         "predictions_n": n, "predictions_sha256": preds_sha256,
+        "ohlcv_archive_n": on, "ohlcv_archive_sha256": oh_sha256,
         "corpus_delta_n": cdn, "corpus_delta_sha256": cd_sha256,
     }
     if read_error:
         payload["predictions_read_error"] = read_error
+    if oh_read_error:
+        payload["ohlcv_archive_read_error"] = oh_read_error
     if cd_read_error:
         payload["corpus_delta_read_error"] = cd_read_error
     entry = {

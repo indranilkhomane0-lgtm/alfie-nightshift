@@ -42,6 +42,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from core.bar_calendar import is_utc_daily_bar_complete
+from nightshift.archive_ohlcv import archive_closed_bars
 
 HOLD_DAYS = 7
 PRED_PATH = ROOT / "reports" / "predictions.jsonl"
@@ -157,6 +158,11 @@ def stamp(cfg: dict, ohlcv, source: str | None = None,
     # label_outcomes.fetch_settle_close() already uses for grading, so
     # the two can't disagree about what's "final."
     closed = ohlcv[[is_utc_daily_bar_complete(i) for i in ohlcv.index]]
+
+    # Archive the EXACT bytes about to be hashed below, not a re-fetch --
+    # same `closed` object, same call. See nightshift/archive_ohlcv.py
+    # for the full design and its honest limits. Never raises.
+    archive_closed_bars(cfg["asset"], closed, source, entry.isoformat())
 
     pred = {
         "prediction_id": f"{cfg['config_id'].replace('/','')}_{entry.isoformat()}",

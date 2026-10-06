@@ -225,6 +225,16 @@ class CodeVersionDirtyScopeTest(unittest.TestCase):
         (self.root / "reports" / "audit" / "audit_20270101.json").write_text("{}\n")
         self.assertFalse(self._dirty())
 
+    def test_ohlcv_archive_falls_under_the_same_reports_archive_exclusion(self):
+        """nightshift/archive_ohlcv.py writes reports/archive/ohlcv.csv.gz
+        -- same directory the corpus-delta archive already lives in and
+        already excludes. No separate entry in RUN_OUTPUT_PATHS was
+        added for it, by design: ':!reports/archive' is a directory
+        exclusion, not a file exclusion, so it already covers any file
+        written under that path. Confirmed here, not just assumed."""
+        (self.root / "reports" / "archive" / "ohlcv.csv.gz").write_bytes(b"\x1f\x8b\x00fake-gzip")
+        self.assertFalse(self._dirty())
+
     def test_uncommitted_source_change_is_dirty(self):
         """A real edit to a tracked file outside RUN_OUTPUT_PATHS must
         still trip dirty=True -- the fix narrows the check, it must not
@@ -305,6 +315,64 @@ class CorpusDeltaSnapshotTest(unittest.TestCase):
         self.assertIsNone(entry["payload"]["corpus_delta_n"])
         self.assertIsNone(entry["payload"]["corpus_delta_sha256"])
         self.assertIn("corpus_delta_read_error", entry["payload"])
+
+
+class OhlcvArchiveSnapshotTest(unittest.TestCase):
+    """_ohlcv_archive_snapshot()'s (row count, sha256, read_error) for
+    the raw OHLCV archive -- same reference-by-hash pattern as
+    _corpus_delta_snapshot()/_predictions_snapshot(), with one
+    difference: the file is gzip, so the sha256 is over the raw
+    (compressed) bytes actually committed, and the row count comes from
+    decompressing first."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.archive_path = Path(self._tmp.name) / "ohlcv.csv.gz"
+        self._patch = mock.patch.object(publish_chain, "OHLCV_ARCHIVE_PATH", self.archive_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_missing_file_reports_none_not_zero(self):
+        n, sha, err = publish_chain._ohlcv_archive_snapshot()
+        self.assertIsNone(n)
+        self.assertIsNone(sha)
+        self.assertIsNotNone(err)
+
+    def test_present_file_decompresses_for_count_hashes_raw_bytes(self):
+        import gzip, hashlib
+        with gzip.open(self.archive_path, "wb") as f:
+            f.write(b"2026-10-07,BTC/USDT,2026-10-06T00:00:00,binance,1.0,2.0,0.5,1.5,100.0\n")
+        with gzip.open(self.archive_path, "ab") as f:  # a second, appended member
+            f.write(b"2026-10-07,ETH/USDT,2026-10-06T00:00:00,binance,1.0,2.0,0.5,1.5,100.0\n")
+
+        n, sha, err = publish_chain._ohlcv_archive_snapshot()
+        self.assertEqual(n, 2, "row count must reflect BOTH concatenated gzip members")
+        self.assertEqual(sha, hashlib.sha256(self.archive_path.read_bytes()).hexdigest(),
+                          "hash must be over the raw file bytes, not the decompressed content")
+        self.assertIsNone(err)
+
+    def test_corrupt_gzip_reports_read_error_not_raise(self):
+        self.archive_path.write_bytes(b"not actually gzip data")
+        n, sha, err = publish_chain._ohlcv_archive_snapshot()
+        self.assertIsNone(n)
+        self.assertIsNone(sha)
+        self.assertIsNotNone(err)
+
+    def test_append_entry_includes_ohlcv_archive_fields(self):
+        import gzip
+        with gzip.open(self.archive_path, "wb") as f:
+            f.write(b"2026-10-07,BTC/USDT,2026-10-06T00:00:00,binance,1.0,2.0,0.5,1.5,100.0\n")
+        with tempfile.TemporaryDirectory() as chain_tmp:
+            chain_path = Path(chain_tmp) / "chain.jsonl"
+            with mock.patch.object(publish_chain, "CHAIN_PATH", chain_path), \
+                 mock.patch.object(publish_chain, "_stamp_at_publish_time", return_value=False):
+                entry = publish_chain.append_entry({"type": "TEST"})
+        self.assertEqual(entry["payload"]["ohlcv_archive_n"], 1)
+        self.assertIsNotNone(entry["payload"]["ohlcv_archive_sha256"])
+        self.assertNotIn("ohlcv_archive_read_error", entry["payload"])
 
 
 if __name__ == "__main__":
