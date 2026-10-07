@@ -113,6 +113,7 @@ ENTRY_POINT_SCRIPTS = {
     "cycle.py", "label_outcomes.py", "void_predictions.py", "watchdog.py",
     "anchor_ots.py", "verify_chain.py", "publish_chain.py",
     "stamp_prediction.py", "self_audit.py", "archive_corpus.py",
+    "reproduce.py",
 }
 # check_dead_code's source scope: directories that are part of the
 # audited pipeline. core/ holds verify_chain.py, canonical since it moved
