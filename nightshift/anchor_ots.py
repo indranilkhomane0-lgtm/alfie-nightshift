@@ -17,12 +17,18 @@ chain file) is caught and logged, never raised. This script always exits
 
 A same-night proof is only a *pending* calendar receipt; full Bitcoin
 confirmation typically takes hours. Each run also opportunistically
-upgrades prior still-pending proofs (oldest first, after tonight's own
-stamping is done, under its own bounded time budget), so proofs become
-fully verifiable over subsequent nights without a separate cron job.
-Stamping runs first and gets first claim on the run's time: a missing
-proof is worse than a pending upgrade, and upgrades keep getting retried
-on later nights regardless.
+upgrades prior still-pending proofs (newest-not-yet-indexed first, after
+tonight's own stamping is done, under its own bounded time budget), so
+proofs become fully verifiable over subsequent nights without a
+separate cron job. Stamping runs first and gets first claim on the
+run's time: a missing proof is worse than a pending upgrade, and
+upgrades keep getting retried on later nights regardless.
+
+The upgrade sweep tracks which hashes are already confirmed in
+CONFIRMED_INDEX_PATH (nightshift/logs/ots_confirmed.index, gitignored)
+so it never re-checks them -- see opportunistic_upgrade()'s own
+docstring for the throughput bug this closes and why that cache is
+safe to lose.
 
 Usage (called by run_and_publish.sh after nightshift/publish_chain.py):
     python3 nightshift/anchor_ots.py
@@ -39,6 +45,14 @@ ROOT = Path(__file__).resolve().parent.parent
 CHAIN_PATH = ROOT / "reports" / "chain.jsonl"
 OTS_DIR = ROOT / "reports" / "ots"
 LOG_PATH = ROOT / "nightshift" / "logs" / "anchor_ots.log"
+# Local-only performance cache, gitignored: entry hashes already known
+# Bitcoin-confirmed, so opportunistic_upgrade() never has to shell out to
+# `ots info` for them again. NOT a source of truth for anything -- that
+# remains the .hash.ots files themselves, which core/verify_chain.py and
+# self_audit.py each independently inspect on every run, never reading
+# this file. See opportunistic_upgrade()'s docstring for why that
+# separation is what makes this cache safe to lose or corrupt.
+CONFIRMED_INDEX_PATH = ROOT / "nightshift" / "logs" / "ots_confirmed.index"
 IST = timezone(timedelta(hours=5, minutes=30))
 
 STAMP_TIMEOUT_S = 15
@@ -149,40 +163,101 @@ def stamp(ots_bin: str, hash_file: Path) -> bool:
     return True
 
 
-def opportunistic_upgrade(ots_bin: str) -> None:
-    """Try to complete every still-pending proof, oldest first, under a
-    single bounded total time budget. Best-effort -- a proof staying
-    pending is normal (Bitcoin confirmation lags) and must never be
-    treated as an error. Runs after tonight's own stamp sweep, on its own
-    budget, so a large backlog of pending upgrades can never eat into the
-    time available for stamping missing proofs. Examining oldest-first
-    means tonight's own (necessarily still-pending) proof, being newest,
-    is tried last and simply rolls over to a later run if the budget
-    runs out first -- it couldn't have confirmed yet anyway.
+def _load_confirmed_index() -> set:
+    """Entry hashes already known Bitcoin-confirmed, from
+    CONFIRMED_INDEX_PATH -- a pure performance cache. Missing or corrupt
+    -> empty set, never raises: a confirmed Bitcoin attestation never
+    becomes unconfirmed (that's the whole premise this cache relies on),
+    so losing it only costs re-deriving which hashes are confirmed by
+    actually looking at their .hash.ots files again -- once, until this
+    file is rebuilt -- never a wrong answer anywhere, since nothing else
+    in this codebase ever reads this file as a source of truth."""
+    if not CONFIRMED_INDEX_PATH.exists():
+        return set()
+    try:
+        return {l.strip() for l in CONFIRMED_INDEX_PATH.read_text().splitlines() if l.strip()}
+    except Exception as exc:
+        log(f"ALERT — could not read {CONFIRMED_INDEX_PATH.name}, rebuilding "
+            f"it from the receipts themselves this run: {exc!r}")
+        return set()
 
-    Skip check: a proof is done once it contains ANY attestation that
-    verifies (one calendar confirming is sufficient -- that calendar's
-    branch alone proves the hash existed before that Bitcoin block).
-    `ots upgrade` never removes the original calendar-commitment leaf
-    when it adds a confirmed one alongside it, so "PendingAttestation"
-    is a substring of `ots info`'s output FOREVER, confirmed or not --
-    checking for its ABSENCE (the previous condition here) is checking
-    for something that is never true, so nothing was ever skipped. Every
-    run re-attempted `ots upgrade` against the full candidate list from
-    scratch, oldest-mtime first, and the 30s budget was spent re-walking
-    the already-confirmed prefix before ever reaching a real pending
-    entry. Confirmed against the live chain on 2026-10-06: 193 of 336
-    receipts were genuinely still pending, 182 of them >48h old, and
-    self_audit.py's independent ots_proof_coverage check (different
-    code, correct logic) had been FAIL every single day since
-    2026-08-01 as a result (finding_count climbing 4 -> 191). The
-    correct check is the presence of a CONFIRMED attestation, not the
-    absence of a pending one."""
-    candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime)
+
+def _append_confirmed(entry_hash: str) -> None:
+    """Appends one hash -- only ever called immediately after this run's
+    own `ots info`/`ots upgrade` call has directly confirmed, from the
+    actual .hash.ots bytes, that the attestation is really there. Never
+    called speculatively, so a corrupted append (a crash mid-write) can
+    at worst duplicate or drop one line -- read back as a set, a
+    duplicate is harmless and a dropped one just costs one more
+    redundant `ots info` call next run, not a wrong answer."""
+    CONFIRMED_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CONFIRMED_INDEX_PATH.open("a") as f:
+        f.write(entry_hash + "\n")
+
+
+def opportunistic_upgrade(ots_bin: str) -> None:
+    """Try to complete every still-pending proof, under a single bounded
+    total time budget. Best-effort -- a proof staying pending is normal
+    (Bitcoin confirmation lags) and must never be treated as an error.
+    Runs after tonight's own stamp sweep, on its own budget, so a large
+    backlog of pending upgrades can never eat into the time available
+    for stamping missing proofs.
+
+    Linear in PENDING receipts, not in chain length -- the fix for a
+    second throughput bug found on the live chain 2026-10-08, same
+    shape as the skip-check bug fixed 2026-10-06 but a different cause.
+    That fix made the per-file skip-check itself correct (presence of a
+    confirmed attestation, not absence of a pending one) -- but still
+    re-ran that correct check, via a real `ots info` subprocess call,
+    against literally every candidate, every night, forever. Measured
+    on the live chain: 357 candidates, ~161ms/file just to skip-check,
+    57.6s total -- the 30s budget died at file 181 every single run,
+    11 runs in a row, 0 newly confirmed, never even reaching the 18
+    genuinely-pending entries sitting at the tail. Those 18 were not
+    failing: `ots upgrade` run directly on 3 of them succeeded in 4-5s
+    each on the first attempt. The cause was throughput, not failure.
+
+    CONFIRMED_INDEX_PATH lets an already-confirmed hash skip with a
+    Python set lookup -- no subprocess, no `ots info` call, nanoseconds
+    not milliseconds -- so the sweep's cost is now proportional to how
+    many receipts are NOT YET indexed as confirmed (genuinely pending,
+    or not yet seen since the index was last lost/rebuilt), not to how
+    many total receipts this chain has ever produced. UPGRADE_TOTAL_BUDGET_S
+    is unchanged at 30s -- per the instruction not to raise it, and
+    because the fix is the shape, not the size: 30s now goes almost
+    entirely to real upgrade attempts (~4-5s each under normal
+    conditions) instead of being consumed by skip-checks, so it covers
+    several times today's typical nightly volume on its own.
+
+    Candidates needing a real check are sorted NEWEST-first, not
+    oldest-first as before. Oldest-first made sense when every file was
+    checked every run regardless (an old, long-confirmed file costs the
+    same skip-check as a new one, so putting pending-likely newer files
+    last just deferred them harmlessly) -- it does NOT make sense now:
+    on the very first run after this fix, or any run after the index is
+    lost, EVERY file is briefly "not yet indexed," and oldest-first
+    would walk the same long-confirmed prefix before reaching the
+    entries that actually need an upgrade attempt, reproducing the
+    exact bug this fix exists to close. Newest-first means a cold index
+    costs nothing but a one-time, budget-bounded indexing cost for old
+    entries -- which are already confirmed and in no hurry -- while
+    genuinely pending (always-newest) entries get tried first, every
+    run, cold index or warm."""
+    confirmed = _load_confirmed_index()
+    candidates = sorted(OTS_DIR.glob("*.hash.ots"), key=lambda p: p.stat().st_mtime, reverse=True)
+    to_check = [f for f in candidates if f.name[:-len(".hash.ots")] not in confirmed]
+
+    if not to_check:
+        log(f"all {len(candidates)} receipt(s) already confirmed and indexed -- nothing to check")
+        return
+
     start = time.monotonic()
-    for ots_file in candidates:
+    newly_indexed = 0
+    for ots_file in to_check:
+        entry_hash = ots_file.name[:-len(".hash.ots")]
         if time.monotonic() - start > UPGRADE_TOTAL_BUDGET_S:
-            log(f"upgrade sweep hit {UPGRADE_TOTAL_BUDGET_S}s budget -- remaining proofs will be retried next run")
+            log(f"upgrade sweep hit {UPGRADE_TOTAL_BUDGET_S}s budget -- "
+                f"{len(to_check) - newly_indexed} still unindexed/pending, retried next run")
             break
 
         try:
@@ -191,7 +266,9 @@ def opportunistic_upgrade(ots_bin: str) -> None:
                 capture_output=True, text=True, timeout=10,
             )
             if "BitcoinBlockHeaderAttestation" in info.stdout:
-                continue  # already has a confirmed attestation, nothing more to do
+                _append_confirmed(entry_hash)
+                newly_indexed += 1
+                continue  # already has a confirmed attestation, now indexed
         except Exception:
             continue
 
@@ -203,10 +280,15 @@ def opportunistic_upgrade(ots_bin: str) -> None:
             )
             if result.returncode == 0:
                 log(f"upgraded {ots_file.name} -- now Bitcoin-confirmed")
+                _append_confirmed(entry_hash)
+                newly_indexed += 1
             else:
                 log(f"upgrade not yet complete for {ots_file.name} (expected until Bitcoin confirms)")
         except Exception as exc:
             log(f"upgrade attempt on {ots_file.name} raised {exc!r} -- skipping")
+    else:
+        log(f"upgrade sweep done: {newly_indexed}/{len(to_check)} newly confirmed/indexed "
+            f"this run, budget not exhausted")
 
 
 def main() -> int:

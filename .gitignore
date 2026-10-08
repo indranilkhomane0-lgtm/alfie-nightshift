@@ -17,6 +17,11 @@ nightshift/logs/*.log
 nightshift/corpus.db
 nightshift/meta_model.pkl
 nightshift/.run.lock/
+# anchor_ots.py's confirmed-receipts cache -- pure performance hint,
+# rebuildable from reports/ots/*.hash.ots themselves if lost; never a
+# source of truth (core/verify_chain.py and self_audit.py each check
+# the real .hash.ots bytes directly, never this file).
+nightshift/logs/ots_confirmed.index
 
 # local safety-net copies -- redundant with git history, and if they show
 # up as untracked they make status.py report "uncommitted changes" on every
