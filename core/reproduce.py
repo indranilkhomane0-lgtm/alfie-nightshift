@@ -106,7 +106,7 @@ import csv
 import gzip
 import subprocess
 import sys
-from datetime import date as _date
+from datetime import date as _date, timedelta as _timedelta
 from pathlib import Path
 
 
@@ -349,6 +349,126 @@ def verify_context_hashes(archived: dict, predictions_today: list) -> list:
             "archived_n_bars": len(df), "recorded_n_bars": p.get("context_n_bars"),
         })
     return results
+
+
+# ── Phase 3b: Option B -- splice night N's live candle from night N+1 ──
+#
+# nightshift/archive_ohlcv.py archives `closed` -- bars through
+# yesterday, exactly what _context_hash() hashes. But the real cycle's
+# regime/WFO/MC-gate/signal/entry-price computations used the FULL
+# fetch, today's live candle included -- the gap disclosed on the
+# chain after the first real reproduction run (2026-10-07). Night N's
+# live candle becomes night N+1's own last CLOSED bar, one calendar day
+# later, once that day has actually elapsed. This recovers it from
+# there instead of archiving it twice or re-fetching it.
+
+def load_spliced_bars(target: _date, log):
+    """Verifies night N+1's own archive before trusting it for anything,
+    then returns ({asset: pandas.Series row for target's date},
+    verified_assets) pulled from it. Raises NotReproducible, with the
+    precise reason, rather than ever silently falling back to the
+    closed-only window -- see the four distinct raise sites below, each
+    naming a different way this can legitimately not be possible."""
+    next_date = target + _timedelta(days=1)
+    if next_date > _date.today():
+        raise NotReproducible(
+            f"NOT REPRODUCIBLE -- SAME-DAY SPLICE OUT OF SCOPE: night "
+            f"{next_date.isoformat()} has not happened yet, so there is no "
+            f"N+1 archive to recover {target.isoformat()}'s live candle "
+            f"from. Splicing only works once at least one more archived "
+            f"night exists after the target date -- this is a stated "
+            f"limit, not a failure discovered obscurely. Try again on or "
+            f"after {next_date.isoformat()}."
+        )
+
+    log(f"Option B: verifying night {next_date.isoformat()}'s own archive "
+        f"before trusting it for {target.isoformat()}'s live candle …")
+    predictions_next = load_predictions_for(next_date)
+    try:
+        archived_next = load_archived_bars(next_date)
+    except NotReproducible as exc:
+        if not predictions_next:
+            # The common real case (hit on 2026-10-08): zero predictions
+            # that night means archive_closed_bars() was never called for
+            # ANY asset -- stamp() only reaches it after the
+            # direction=="none" check. A real data gap, not a malformed
+            # archive -- said precisely, not folded into the generic
+            # "no rows" message below.
+            raise NotReproducible(
+                f"NOT REPRODUCIBLE -- NO N+1 ARCHIVE: night "
+                f"{next_date.isoformat()} stamped zero predictions -- every "
+                f"candidate that night had no entry signal, so "
+                f"nightshift/stamp_prediction.py's archive_closed_bars() "
+                f"was never called for any asset. There is nothing archived "
+                f"to verify provenance against or splice from. This is a "
+                f"real data gap, not a malformed archive."
+            )
+        raise NotReproducible(
+            f"NOT REPRODUCIBLE -- NO N+1 ARCHIVE: night {next_date.isoformat()} "
+            f"has no usable OHLCV archive to splice {target.isoformat()}'s "
+            f"live candle from, despite {len(predictions_next)} prediction(s) "
+            f"being recorded that night (archiving likely failed -- see "
+            f"nightshift/logs/archive_ohlcv.log). Reason: {exc}"
+        )
+
+    hash_checks = verify_context_hashes(archived_next, predictions_next)
+    bad = [r for r in hash_checks if not r["match"]]
+    if bad:
+        raise NotReproducible(
+            f"NOT REPRODUCIBLE -- NO N+1 ARCHIVE: night {next_date.isoformat()}'s "
+            f"own context_hash does not verify against its archived bars "
+            f"for {[r['asset'] for r in bad]}. Refusing to borrow a bar "
+            f"from an archive that doesn't verify against what it itself "
+            f"recorded, regardless of what it contains."
+        )
+    verified_assets = {r["asset"] for r in hash_checks}
+    log(f"  night {next_date.isoformat()}'s context_hash verified for "
+        f"{sorted(verified_assets)} -- trusted for splicing")
+
+    spliced = {}
+    target_str = target.isoformat()
+    for asset in verified_assets:
+        df_next = archived_next[asset]["df"]
+        matches = df_next[df_next.index.strftime("%Y-%m-%d") == target_str]
+        if matches.empty:
+            log(f"  WARNING: night {next_date.isoformat()}'s verified "
+                f"archive for {asset} has no bar dated {target_str} -- "
+                f"cannot splice this asset; its window stays at the "
+                f"original closed-only length.")
+            continue
+        spliced[asset] = matches.iloc[-1]
+    if not spliced:
+        raise NotReproducible(
+            f"NOT REPRODUCIBLE -- NO N+1 ARCHIVE: night {next_date.isoformat()}'s "
+            f"archive verified, but none of its assets have a bar dated "
+            f"{target_str} to splice -- nothing usable for any asset."
+        )
+    return spliced, verified_assets
+
+
+def apply_splice(archived: dict, target: _date, log) -> dict:
+    """Returns a NEW {asset: {"df":..., "source":...}} dict -- each
+    asset with a spliced bar gets its DataFrame extended by exactly one
+    row; an asset load_spliced_bars() couldn't splice (logged there, not
+    here) is passed through unchanged, at its original closed-only
+    length, rather than aborting the whole run over one asset. Raises
+    NotReproducible if splicing isn't possible AT ALL (see
+    load_spliced_bars) -- there is no silent full fallback to
+    closed-only; a caller that gets this exception has nothing spliced
+    for any asset and should treat the run as not reproducible under
+    Option B, not quietly retry without it."""
+    import pandas as pd
+    spliced_rows, _ = load_spliced_bars(target, log)
+    out = {}
+    for asset, info in archived.items():
+        df = info["df"]
+        if asset in spliced_rows:
+            row = spliced_rows[asset]
+            extra = pd.DataFrame([row.values], columns=df.columns, index=[row.name])
+            df = pd.concat([df, extra])
+            log(f"  spliced 1 bar for {asset}: {len(info['df'])} -> {len(df)} bars")
+        out[asset] = {"df": df, "source": info["source"]}
+    return out
 
 
 # ── Phase 4: corpus state reconstruction from corpus_delta.jsonl ────────
@@ -642,6 +762,14 @@ def main() -> int:
     ap.add_argument("--allow-strategy-mismatch", action="store_true",
                      help="proceed even if strategy_version differs from the "
                           "current checkout (exploration only -- NOT a verification)")
+    ap.add_argument("--splice-live-candle", action="store_true",
+                     help="recover the target night's then-live candle from "
+                          "night N+1's own (provenance-verified) archive "
+                          "before replaying, instead of using the "
+                          "closed-only window alone (Option B). Requires "
+                          "night N+1 to have already run and archived real "
+                          "bars; refuses outright otherwise -- never a "
+                          "silent fallback to closed-only.")
     args = ap.parse_args()
 
     try:
@@ -692,12 +820,18 @@ def main() -> int:
         hashes_ok = all(r["match"] for r in hash_results)
 
         print("\n--- Steps 3-4: replay regime / WFO / MC-gate / meta-rank ---")
-        print("KNOWN GAP: replay runs against the archived CLOSED-bar window "
-              "(today's in-progress candle excluded -- same window "
-              "_context_hash() hashes). The real cycle's regime/WFO/MC-gate "
-              "stages used the FULL fetched window, one bar more. A "
-              "divergence below may be this, not a cross-machine float issue "
-              "-- see the per-asset bar counts and the verdict section.")
+        if args.splice_live_candle:
+            print("Option B: splicing the target night's live candle from "
+                  "night N+1's provenance-verified archive before replaying.")
+            archived = apply_splice(archived, target, log)
+        else:
+            print("KNOWN GAP: replay runs against the archived CLOSED-bar window "
+                  "(today's in-progress candle excluded -- same window "
+                  "_context_hash() hashes). The real cycle's regime/WFO/MC-gate "
+                  "stages used the FULL fetched window, one bar more. A "
+                  "divergence below may be this, not a cross-machine float issue "
+                  "-- see the per-asset bar counts and the verdict section, or "
+                  "re-run with --splice-live-candle.")
         delta_rows = _load_corpus_delta()
         cycle_id = int(target.strftime("%Y%m%d"))
         result = replay(archived, delta_rows, cycle_id, target, predictions_all, log)
