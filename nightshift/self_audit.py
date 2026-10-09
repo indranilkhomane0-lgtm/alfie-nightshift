@@ -645,6 +645,23 @@ _DOC_CONST_RE = re.compile(r'`([A-Za-z_][A-Za-z0-9_]*)=(-?\d+(?:\.\d+)?)`')
 # instructions.
 _DOC_VERIFY_CMD_RE = re.compile(r'^\s*python3\s+(\S+)', re.MULTILINE)
 
+# Runtime artifacts: sidecars written by one process and read-and-deleted
+# by another within the same run_and_publish.sh invocation (see
+# publish_chain.py's FAILURE_SIDECAR_PATH/GRADUATION_SIDECAR_PATH and the
+# ALFIE_RUN_ID-binding discipline on both). Legitimately absent most of
+# the time -- a comment citing one of these is not a broken reference
+# just because the file isn't on disk at audit time; the previous
+# behavior (flagging nightshift/logs/last_pipeline_failure.json as
+# "missing" every single night it wasn't mid-failure) was permanent
+# known-noise in this check, which teaches a reader to stop trusting it
+# at all. Only the exact path string is exempted, and only when its
+# parent directory exists -- a real typo in the cited path (wrong
+# directory) still gets flagged, same as any other missing_paths entry.
+KNOWN_TRANSIENT_ARTIFACT_PATHS = {
+    "nightshift/logs/last_pipeline_failure.json",
+    "nightshift/logs/meta_model_graduation.json",
+}
+
 
 def check_doc_reference_integrity() -> dict:
     """Scoped to exactly the three places the docstring above names as
@@ -719,6 +736,8 @@ def check_doc_reference_integrity() -> dict:
             else:
                 target = ROOT / token
             if not target.exists():
+                if token in KNOWN_TRANSIENT_ARTIFACT_PATHS and target.parent.exists():
+                    continue  # transient sidecar, absent is normal -- see KNOWN_TRANSIENT_ARTIFACT_PATHS
                 finding["detail"]["missing_paths"].append(
                     {"file": path.name, "cited": token})
 

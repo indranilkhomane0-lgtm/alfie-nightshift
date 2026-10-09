@@ -144,7 +144,7 @@ fi
 # The cycle now always runs. If the network genuinely isn't up yet,
 # nightshift/cycle.py's load_price_data() fails the exchange fetch on its
 # own and raises -- caught below as a normal cycle failure, now correctly
-# attributed (see nightshift/run_nightshift.py's failure classification:
+# attributed (see run_nightshift.py's failure classification:
 # failure_class "upstream_data") instead of masked behind a generic
 # pre-emptive network guard. If Wi-Fi associates a few seconds into the
 # run, the cycle simply succeeds. Either way, this launchd fire actually

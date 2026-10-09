@@ -53,6 +53,24 @@ disk a second time: it's read fresh each run via `git credential fill`
 (the same credential helper `git push` already uses), kept in memory
 for the one API call, and discarded.
 
+Audit-regression routing, as of 2026-10-09 (disclosed on the chain):
+self_audit.py's checks were correct and chained every night, but nothing
+ever read the result -- two findings sat there undetected not because
+the check was wrong but because there was nowhere for a CHANGE in it to
+land. check_audit_regressions() diffs tonight's AUDIT_RESULT chain entry
+against the one before it and alerts on CHANGE only, never on standing
+level: a check that newly fails when it passed before, a finding count
+that increased on an already-failing check, a check that newly passes
+again (routed at lower priority -- worth knowing, not worth the same
+tone), and entries_without_ots_proof climbing (a top-level count on the
+payload, not one of the per-check finding lists, which is exactly how
+the 4 -> 191 OTS backlog climbed for 66 days without ever being compared
+night over night). A nightly notification about a standing 17 dead-code
+findings would become noise within a week and then get ignored -- the
+specific failure mode this is built to not reproduce. The baseline is
+the chain itself (the last two AUDIT_RESULT entries), not a separate
+state file -- nothing to lose, nothing to rebuild.
+
 Usage (called by launchd, see com.alfie.nightshift.watchdog.plist):
     python3 nightshift/watchdog.py
 """
@@ -88,6 +106,127 @@ def last_entry():
     with CHAIN_PATH.open("rb") as f:
         last_line = f.read().splitlines()[-1]
     return json.loads(last_line)
+
+
+def _load_chain_entries() -> list[dict]:
+    """Every chain entry, oldest first. Used only by the audit-regression
+    check below, which needs to find the last two AUDIT_RESULT entries
+    regardless of what else was chained in between or after -- last_entry()
+    above stays untouched as the single-entry fast path the rest of main()
+    already relies on."""
+    if not CHAIN_PATH.exists():
+        return []
+    entries = []
+    with CHAIN_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                entries.append(json.loads(line))
+    return entries
+
+
+def _last_two_audit_results(entries: list[dict]) -> tuple[dict | None, dict | None]:
+    """(previous, current) AUDIT_RESULT entries -- current is None if the
+    chain has never carried one yet; previous is None if current is the
+    first. The baseline deliberately lives in the chain itself, not a
+    separate state file: the chain already carries everything needed
+    (same standard the OTS confirmed-index is held to when it IS a
+    separate file -- rebuildable from source of truth -- except here
+    there's no need for a file at all, since the chain already is that
+    source)."""
+    audits = [e for e in entries if e.get("payload", {}).get("type") == "AUDIT_RESULT"]
+    if not audits:
+        return None, None
+    if len(audits) == 1:
+        return None, audits[-1]
+    return audits[-2], audits[-1]
+
+
+def check_audit_regressions(entries: list[dict]) -> tuple[list[str], list[str]]:
+    """Diffs tonight's AUDIT_RESULT against the one before it. Returns
+    (regressions, recoveries) -- both empty if nothing changed, which is
+    the common, correct, silent case: self_audit.py's checks run every
+    night and most nights look exactly like the night before.
+
+    This exists to fix two findings that were detected correctly by
+    self_audit.py and read by nobody, because there was nowhere for a
+    CHANGE in them to land: the OTS backlog climbing 4 -> 191 over 66
+    days (entries_without_ots_proof is a top-level count on the AUDIT_RESULT
+    payload, not one of the per-check finding lists FINDING_KEYS counts --
+    see self_audit.py -- so it never flipped ots_proof_coverage's own
+    status to FAIL and nothing ever compared the number itself night over
+    night), and live_monitor.register() flagged unreachable in 67 of 67
+    audits since 2026-08-01 (a standing FAIL with a standing finding_count
+    looks identical every single night -- only a transition is actually
+    news).
+
+    Deliberately alerts on CHANGE, never on standing level. A nightly
+    notification about 17 dead symbols becomes noise within a week and
+    then gets ignored -- the exact failure mode this function exists to
+    avoid reproducing in a new form."""
+    prev, curr = _last_two_audit_results(entries)
+    if curr is None:
+        return [], []
+    regressions: list[str] = []
+    recoveries: list[str] = []
+    prev_payload = prev.get("payload", {}) if prev else {}
+    curr_payload = curr.get("payload", {})
+    prev_checks = prev_payload.get("checks", {})
+    curr_checks = curr_payload.get("checks", {})
+
+    for name, curr_c in curr_checks.items():
+        curr_status = curr_c.get("status")
+        curr_n = curr_c.get("finding_count", 0)
+        prev_c = prev_checks.get(name)
+        if prev_c is None:
+            # New check, or first audit ever -- nothing to diff against.
+            # A brand-new check that's already failing still deserves one
+            # mention, since otherwise its first failure would be silent.
+            if curr_status in ("FAIL", "ERROR"):
+                regressions.append(
+                    f"{name} is {curr_status} ({curr_n} finding(s)) -- "
+                    f"no prior audit to compare against"
+                )
+            continue
+        prev_status = prev_c.get("status")
+        prev_n = prev_c.get("finding_count", 0)
+        newly_failing = curr_status in ("FAIL", "ERROR") and prev_status not in ("FAIL", "ERROR")
+        still_failing_but_worse = (
+            curr_status in ("FAIL", "ERROR") and prev_status in ("FAIL", "ERROR")
+            and curr_n > prev_n
+        )
+        newly_passing = curr_status == "PASS" and prev_status in ("FAIL", "ERROR")
+        if newly_failing:
+            regressions.append(
+                f"{name} newly {curr_status} (was {prev_status}) -- {curr_n} finding(s)")
+        elif still_failing_but_worse:
+            regressions.append(
+                f"{name} finding count increased {prev_n} -> {curr_n} (status {curr_status})")
+        elif newly_passing:
+            recoveries.append(f"{name} newly PASS (was {prev_status})")
+
+    # entries_without_ots_proof: a top-level count, not inside checks{} --
+    # exactly the field that climbed unnoticed in the real incident this
+    # function discloses. Compared directly, independent of
+    # ots_proof_coverage's own PASS/FAIL status, because the real backlog
+    # grew for 66 days without that status ever flipping to FAIL (none of
+    # those entries had yet crossed into orphan/missing/pending-past-grace --
+    # they were each, individually, still "normal", while the total climbed).
+    prev_unanchored = prev_payload.get("entries_without_ots_proof")
+    curr_unanchored = curr_payload.get("entries_without_ots_proof")
+    if prev_unanchored is not None and curr_unanchored is not None:
+        if curr_unanchored > prev_unanchored:
+            regressions.append(
+                f"OTS backlog grew {prev_unanchored} -> {curr_unanchored} "
+                f"entries without a proof"
+            )
+        elif curr_unanchored < prev_unanchored:
+            recoveries.append(
+                f"OTS backlog shrank {prev_unanchored} -> {curr_unanchored} "
+                f"entries without a proof"
+            )
+
+    return regressions, recoveries
 
 
 def try_push() -> tuple[bool, str]:
@@ -142,7 +281,7 @@ def _load_env_value(key: str) -> str | None:
     return None
 
 
-def notify_offmachine(title: str, message: str) -> tuple[bool, str]:
+def notify_offmachine(title: str, message: str, priority: str = "urgent") -> tuple[bool, str]:
     """POST to ntfy.sh -- the primary, logged alert channel as of chain
     entry 256. Off-machine (reaches a phone, not just this Mac), zero
     recurring cost (public ntfy.sh instance, no account needed), and
@@ -155,15 +294,21 @@ def notify_offmachine(title: str, message: str) -> tuple[bool, str]:
     says nothing about whether the OS actually displayed anything (see
     entry 256 -- that was osascript's exact failure mode). Returns
     (success, detail), same shape as try_push(), for the same reason:
-    a caller that wants to log the truth needs both halves."""
+    a caller that wants to log the truth needs both halves.
+
+    priority defaults to "urgent" (every pre-existing caller's behavior,
+    unchanged) -- _alert_audit() below passes "default" for a recovery
+    notice ("newly passes after failing"), which is worth knowing but
+    not worth the same tone as a dead credential or a missed night."""
     topic = _load_env_value("NTFY_TOPIC")
     if not topic:
         return False, "NTFY_TOPIC not set in .env"
+    tag = "rotating_light" if priority == "urgent" else "information_source"
     try:
         req = urllib.request.Request(
             f"https://ntfy.sh/{topic}",
             data=message.encode("utf-8"),
-            headers={"Title": title, "Priority": "urgent", "Tags": "rotating_light"},
+            headers={"Title": title, "Priority": priority, "Tags": tag},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=NTFY_TIMEOUT_S) as resp:
@@ -302,6 +447,39 @@ def alert(message: str) -> None:
     )
 
 
+def _alert_audit(message: str, priority: str = "urgent") -> None:
+    """notify_offmachine() only, deliberately -- no osascript fallback.
+    alert() above is specifically about a missed/failed pipeline run
+    ("Night Shift MISSED" is its fixed title) and firing it for an audit
+    regression would misdescribe what happened; this is its own,
+    separately-logged channel under its own title, same delivery-checked
+    discipline (logged either way, success or failure) as every other
+    notify_offmachine() call in this file."""
+    delivered, detail = notify_offmachine("Night Shift AUDIT", message, priority=priority)
+    log(f"{'ntfy delivered' if delivered else 'ntfy FAILED'} — {detail}")
+
+
+def _report_audit_regressions(entries: list[dict]) -> bool:
+    """Runs check_audit_regressions(), logs every regression and recovery,
+    and routes each through _alert_audit() -- regressions at "urgent"
+    priority, recoveries at "default" (worth knowing, not worth the same
+    tone). Returns True only when there were no regressions, so main()
+    can fold a silent one into a non-zero exit the same way a dying
+    credential already is. Deliberately does not require recoveries to be
+    absent for a "clean" result -- a recovery is good news, not a
+    reason to fail the run."""
+    regressions, recoveries = check_audit_regressions(entries)
+    for line in regressions:
+        log(f"ALERT — audit regression: {line}")
+        _alert_audit(f"Audit regression: {line}", priority="urgent")
+    for line in recoveries:
+        log(f"audit recovery (informational): {line}")
+        _alert_audit(f"Audit recovered: {line}", priority="default")
+    if not regressions and not recoveries:
+        log("audit regression check: no change since the previous AUDIT_RESULT")
+    return not regressions
+
+
 def _report_credential_status() -> bool:
     """Runs check_credential_expiry(), logs the result, and alerts for
     anything other than 'ok'. Three distinct alert wordings on purpose --
@@ -331,6 +509,7 @@ def _report_credential_status() -> bool:
 def main() -> int:
     try:
         credential_ok = _report_credential_status()
+        audit_ok = _report_audit_regressions(_load_chain_entries())
 
         today = datetime.now(IST).date()
         entry = last_entry()
@@ -390,7 +569,7 @@ def main() -> int:
             return 1
 
         log(f"OK — {kind} published {published.strftime('%H:%M IST')} for {today}, pushed to origin.")
-        return 0 if credential_ok else 1
+        return 0 if (credential_ok and audit_ok) else 1
     except Exception as exc:
         # Anything unanticipated (corrupt chain entry, missing git binary, etc.)
         # must still land a log line -- an unhandled crash here would otherwise
