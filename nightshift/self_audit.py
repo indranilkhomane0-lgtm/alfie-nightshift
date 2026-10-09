@@ -109,16 +109,30 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # below matches both core/verify_chain.py and the nightshift/verify_chain.py
 # backward-compat shim (filename-only matching) -- keep listed as long as
 # either exists.
+# run_nightshift.py: the actual nightly entry point -- run_and_publish.sh
+# invokes it directly -- added 2026-10-09 alongside AST_SCAN_EXTRA_FILES
+# below. It lives at the repo root, outside every directory AST_SCAN_DIRS
+# names, so this check had never parsed it at all: two real, called
+# functions (meta_model.py's top_features()/corpus_health(), both called
+# only from here) were flagged dead for roughly ten weeks not because of
+# any AST blind spot but because the scanner never looked at the one
+# file that calls them. Disclosed on the chain.
 ENTRY_POINT_SCRIPTS = {
     "cycle.py", "label_outcomes.py", "void_predictions.py", "watchdog.py",
     "anchor_ots.py", "verify_chain.py", "publish_chain.py",
     "stamp_prediction.py", "self_audit.py", "archive_corpus.py",
-    "reproduce.py",
+    "reproduce.py", "run_nightshift.py",
 }
 # check_dead_code's source scope: directories that are part of the
 # audited pipeline. core/ holds verify_chain.py, canonical since it moved
 # out of nightshift/ (nightshift/verify_chain.py is now a compat shim).
 AST_SCAN_DIRS = (NIGHTSHIFT_DIR, ROOT / "core")
+# Standalone entry-point scripts that live OUTSIDE every AST_SCAN_DIRS
+# directory -- by file, not by directory, deliberately: ROOT itself
+# holds tests/, venv/, and other things this check has no business
+# parsing (venv/ alone would pull in every third-party package). Only
+# run_nightshift.py, named explicitly, is added this way.
+AST_SCAN_EXTRA_FILES = (ROOT / "run_nightshift.py",)
 AST_SCAN_EXCLUDE_DIRS = {"logs", "briefs", "__pycache__"}
 
 OTS_ANCHORING_START = date(2026, 7, 28)  # before this, no proof is expected
@@ -398,6 +412,150 @@ class _DefCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+# Dead-code suppression table, triaged 2026-10-09 (disclosed on the
+# chain). Two categories that are different CLAIMS and must stay
+# visibly distinct to a reader -- "category" below, not just a free-text
+# reason:
+#   AST_BLIND_SPOT   -- this is real, live code, called every night.
+#                       The checker cannot see the call, for a specific,
+#                       named mechanism (dict dispatch, or a function
+#                       passed by reference to library code). Not dead.
+#   DELIBERATELY_DEAD -- this really is unreachable right now, kept on
+#                       purpose because it's the correct piece of a
+#                       live-deployment pipeline that was never wired up
+#                       (see nightshift/meta_model.py's should_retrain()
+#                       docstring and chain entries 381/382). If that
+#                       pipeline is ever built, this symbol is exactly
+#                       what should start being called again.
+#
+# This table is audited against the checker's own output every run (see
+# _audit_suppression_table() below), not trusted blindly -- a suppression
+# table that nothing ever rechecks is the next place a real regression
+# goes to hide, which is the exact failure this task exists to fix.
+DEAD_CODE_CATEGORY_AST_BLIND_SPOT = "ast_blind_spot_confirmed_live"
+DEAD_CODE_CATEGORY_DELIBERATELY_DEAD = "deliberately_dead_pending_pipeline"
+
+DEAD_CODE_SUPPRESSED: dict[str, dict] = {
+    "momentum_strategy": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['momentum']['fn'] "
+                  "(nightshift/strategies/__init__.py), called from "
+                  "nightshift/cycle.py as spec['fn'](...) -- a subscript, "
+                  "not an ast.Call node",
+    },
+    "momentum_params": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['momentum']['param_space'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "mean_rev_strategy": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['mean_rev']['fn'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "mean_rev_params": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['mean_rev']['param_space'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "relative_strategy": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['relative']['fn'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "relative_params": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['relative']['param_space'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "breakout_strategy": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['breakout']['fn'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "breakout_params": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "dict-dispatched via STRATEGY_REGISTRY['breakout']['param_space'], "
+                  "same mechanism as momentum_strategy",
+    },
+    "_safe_ret": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "called only from within the four dict-dispatched "
+                  "*_strategy functions above (nightshift/strategies/__init__.py) "
+                  "-- unreachable here only because its own callers are, "
+                  "for the same reason",
+    },
+    "objective": {
+        "category": DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+        "reason": "nightshift/wfo_engine.py -- a nested function passed BY "
+                  "REFERENCE to optuna's study.optimize(objective, ...), "
+                  "which invokes it internally. Never appears as an "
+                  "ast.Call node's func, only as a Call's argument -- a "
+                  "different AST blind spot than dict dispatch, same "
+                  "conclusion (real, live, not dead)",
+    },
+    "labeled_date_count": {
+        "category": DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+        "reason": "nightshift/db.py -- the correct gate for a "
+                  "live-deployment pipeline that doesn't exist yet "
+                  "(LiveMonitor.register() has zero callers anywhere); "
+                  "disclosed on the chain",
+    },
+    "get_labelled_corpus": {
+        "category": DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+        "reason": "nightshift/db.py -- same corpus.survived dependency "
+                  "and same not-yet-built live-deployment pipeline as "
+                  "labeled_date_count()",
+    },
+    "register": {
+        "category": DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+        "reason": "nightshift/live_monitor.py LiveMonitor.register() -- "
+                  "zero callers anywhere; the live-deployment pipeline "
+                  "this would wire up was never built",
+    },
+    "add_return": {
+        "category": DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+        "reason": "nightshift/live_monitor.py LiveMonitor.add_return() -- "
+                  "feeds self._active, which register() never populates; "
+                  "same unwired pipeline as register()",
+    },
+}
+
+
+def _audit_suppression_table(all_defs: dict, reachable: set) -> list[dict]:
+    """Checks the suppression table against the checker's own output,
+    rather than trusting it blindly. Two ways it can go stale:
+      - a suppressed symbol no longer exists in the codebase at all
+        (renamed, deleted, moved) -- the entry is now about nothing;
+      - a DELIBERATELY_DEAD symbol is now actually reachable (it gained
+        a real caller) -- the justification ("kept for a pipeline that
+        doesn't exist yet") is no longer true, and leaving it suppressed
+        would hide a real change instead of a non-finding.
+    AST_BLIND_SPOT entries are not re-checked for reachability -- the
+    whole point of that category is that the AST will never see the
+    call that makes them live, so "not reachable by this checker" is
+    permanently expected and not itself informative for them."""
+    issues = []
+    for name, info in DEAD_CODE_SUPPRESSED.items():
+        if name not in all_defs:
+            issues.append({
+                "symbol": name, "problem": "suppressed_symbol_not_found",
+                "detail": "no def with this name exists in the scanned "
+                          "source anymore -- the suppression entry is stale",
+            })
+            continue
+        if (info["category"] == DEAD_CODE_CATEGORY_DELIBERATELY_DEAD
+                and name in reachable):
+            issues.append({
+                "symbol": name, "problem": "deliberately_dead_symbol_now_reachable",
+                "detail": "this symbol is suppressed as deliberately dead, "
+                          "but the checker now finds it reachable -- it may "
+                          "have gained a real caller; the suppression entry "
+                          "needs re-justifying, not just left in place",
+            })
+    return issues
+
+
 def check_dead_code(root_name: str = "run") -> dict:
     """Union of two roots: (a) NightShiftCycle.run()'s transitive call
     graph via AST name matching, (b) every ENTRY_POINT_SCRIPTS module's
@@ -409,7 +567,9 @@ def check_dead_code(root_name: str = "run") -> dict:
     them either way and would otherwise false-positive on every one."""
     finding = {
         "name": "dead_code_reachability", "status": "PASS",
-        "detail": {"flagged": [], "known_limitation": (
+        "detail": {"flagged": [], "suppressed": [],
+                   "suppression_table_issues": [],
+                   "known_limitation": (
             "AST name-matching only, not type-resolved: dict dispatch, "
             "getattr, and decorator-wrapped calls will not be seen as "
             "calls and can produce false positives here."
@@ -420,6 +580,7 @@ def check_dead_code(root_name: str = "run") -> dict:
 
     py_files = [p for d in AST_SCAN_DIRS for p in d.rglob("*.py")
                 if not any(part in AST_SCAN_EXCLUDE_DIRS for part in p.parts)]
+    py_files += [p for p in AST_SCAN_EXTRA_FILES if p.exists()]
     for path in py_files:
         try:
             tree = ast.parse(path.read_text(), filename=str(path))
@@ -476,10 +637,20 @@ def check_dead_code(root_name: str = "run") -> dict:
             continue
         if name in reachable:
             continue
+        if name in DEAD_CODE_SUPPRESSED:
+            sup = DEAD_CODE_SUPPRESSED[name]
+            finding["detail"]["suppressed"].append({
+                "name": name, "file": info["file"], "lineno": info["lineno"],
+                "category": sup["category"], "reason": sup["reason"],
+            })
+            continue
         finding["detail"]["flagged"].append(
             {"name": name, "file": info["file"], "lineno": info["lineno"]})
 
-    if finding["detail"]["flagged"]:
+    finding["detail"]["suppression_table_issues"] = _audit_suppression_table(
+        all_defs, reachable)
+
+    if finding["detail"]["flagged"] or finding["detail"]["suppression_table_issues"]:
         finding["status"] = "FAIL"
     return finding
 
@@ -863,7 +1034,7 @@ FINDING_KEYS = {
     "gap_dates",
     "missing_after_cutoff", "unexpected_before_cutoff",
     "orphan_hash_no_ots", "pending_past_grace", "missing_entirely",
-    "flagged", "parse_errors",
+    "flagged", "parse_errors", "suppression_table_issues",
     "sidecar_flags", "constant_columns",
     "gated_but_unimplemented", "implemented_but_never_gated",
     "decreases",

@@ -35,8 +35,8 @@ except Exception as e:
     check("Data layer", False, str(e))
 
 try:
-    from nightshift.derivatives import get_all_signals
-    sig = get_all_signals("BTC/USDT")
+    from nightshift.derivatives import get_all_signals_with_status
+    sig, _ = get_all_signals_with_status("BTC/USDT")
     keys = ["funding_rate", "longshort_ratio", "oi_trend_7d"]
     check("All derivative keys present", all(k in sig for k in keys))
     check("Funding rate in range", -0.01 < sig["funding_rate"] < 0.01, round(sig["funding_rate"], 6))

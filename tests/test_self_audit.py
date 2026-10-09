@@ -85,5 +85,110 @@ class DocReferenceIntegrityTransientArtifactTest(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
 
 
+class AuditSuppressionTableTest(unittest.TestCase):
+    """_audit_suppression_table()'s two self-checks: a suppressed symbol
+    that no longer exists in the scanned source, and a DELIBERATELY_DEAD
+    symbol that the checker now finds reachable (it may have gained a
+    real caller) -- both must surface as findings, not be silently
+    trusted. The suppression table is otherwise exactly the kind of
+    place a real regression could go to hide, the failure shape this
+    whole audit-routing task exists to fix."""
+
+    def test_clean_table_reports_no_issues(self):
+        all_defs = {"labeled_date_count": {}}
+        reachable = set()
+        issues = self_audit._audit_suppression_table(all_defs, reachable)
+        # labeled_date_count exists and is not reachable -- no issue for it.
+        self.assertEqual([i for i in issues if i["symbol"] == "labeled_date_count"], [])
+
+    def test_suppressed_symbol_no_longer_in_source_is_flagged(self):
+        with mock.patch.object(self_audit, "DEAD_CODE_SUPPRESSED", {
+            "ghost_function": {
+                "category": self_audit.DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+                "reason": "test",
+            },
+        }):
+            issues = self_audit._audit_suppression_table(all_defs={}, reachable=set())
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["symbol"], "ghost_function")
+        self.assertEqual(issues[0]["problem"], "suppressed_symbol_not_found")
+
+    def test_deliberately_dead_symbol_now_reachable_is_flagged(self):
+        """The real regression this guards against: register() (or any
+        DELIBERATELY_DEAD symbol) gains a real caller, meaning the
+        pipeline it was kept for got wired up -- the suppression entry
+        is now describing something false and must surface, not keep
+        silently hiding it."""
+        with mock.patch.object(self_audit, "DEAD_CODE_SUPPRESSED", {
+            "register": {
+                "category": self_audit.DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+                "reason": "test",
+            },
+        }):
+            issues = self_audit._audit_suppression_table(
+                all_defs={"register": {}}, reachable={"register"})
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["symbol"], "register")
+        self.assertEqual(issues[0]["problem"], "deliberately_dead_symbol_now_reachable")
+
+    def test_ast_blind_spot_symbol_becoming_reachable_is_not_flagged(self):
+        """AST_BLIND_SPOT entries are never re-checked for reachability --
+        the whole point of that category is the AST will never see the
+        call that makes them live, so this isn't informative for them
+        the way it is for DELIBERATELY_DEAD."""
+        with mock.patch.object(self_audit, "DEAD_CODE_SUPPRESSED", {
+            "momentum_strategy": {
+                "category": self_audit.DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+                "reason": "test",
+            },
+        }):
+            issues = self_audit._audit_suppression_table(
+                all_defs={"momentum_strategy": {}}, reachable={"momentum_strategy"})
+        self.assertEqual(issues, [])
+
+    def test_real_suppression_table_against_real_codebase_has_no_issues(self):
+        """End to end against the actual repo, no mocking -- confirms the
+        real, current DEAD_CODE_SUPPRESSED table is accurate right now."""
+        result = self_audit.check_dead_code()
+        self.assertEqual(result["detail"]["suppression_table_issues"], [])
+
+
+class DeadCodeSuppressionCategoriesTest(unittest.TestCase):
+    """check_dead_code()'s output against the real codebase: suppressed
+    entries must be visibly split by category (a reader must be able to
+    tell "confirmed live" from "deliberately dead" without opening
+    source), and nothing outside the triaged get_all_signals() should
+    remain flagged."""
+
+    def test_zero_flagged_after_triage(self):
+        result = self_audit.check_dead_code()
+        self.assertEqual(result["detail"]["flagged"], [])
+        self.assertEqual(result["status"], "PASS")
+
+    def test_suppressed_entries_carry_distinct_categories(self):
+        result = self_audit.check_dead_code()
+        categories = {s["category"] for s in result["detail"]["suppressed"]}
+        self.assertEqual(categories, {
+            self_audit.DEAD_CODE_CATEGORY_AST_BLIND_SPOT,
+            self_audit.DEAD_CODE_CATEGORY_DELIBERATELY_DEAD,
+        })
+
+    def test_registry_dispatched_strategies_are_ast_blind_spot_category(self):
+        result = self_audit.check_dead_code()
+        by_name = {s["name"]: s for s in result["detail"]["suppressed"]}
+        for name in ("momentum_strategy", "momentum_params", "mean_rev_strategy",
+                     "mean_rev_params", "relative_strategy", "relative_params",
+                     "breakout_strategy", "breakout_params", "_safe_ret", "objective"):
+            self.assertEqual(by_name[name]["category"],
+                              self_audit.DEAD_CODE_CATEGORY_AST_BLIND_SPOT, name)
+
+    def test_live_monitor_pipeline_symbols_are_deliberately_dead_category(self):
+        result = self_audit.check_dead_code()
+        by_name = {s["name"]: s for s in result["detail"]["suppressed"]}
+        for name in ("labeled_date_count", "get_labelled_corpus", "register", "add_return"):
+            self.assertEqual(by_name[name]["category"],
+                              self_audit.DEAD_CODE_CATEGORY_DELIBERATELY_DEAD, name)
+
+
 if __name__ == "__main__":
     unittest.main()

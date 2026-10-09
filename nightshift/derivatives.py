@@ -105,18 +105,16 @@ def fetch_btc_dominance_delta(status: dict = None) -> float:
         if status is not None: status["btc_dominance_delta"] = False
         return 0.0
 
-def get_all_signals(asset: str) -> dict:
-    """Fetch all derivatives signals for one asset. Falls back to neutral
-    values on any failure. See get_all_signals_with_status() for which
-    sources actually succeeded vs. fell back."""
-    values, _ = get_all_signals_with_status(asset)
-    return values
-
 def get_all_signals_with_status(asset: str) -> tuple:
-    """Same as get_all_signals(), plus a per-source bool: True if that
-    source returned real data, False if it fell back to a default.
-    exchange_flow_7d is always False — it's a hardcoded placeholder
-    (needs Glassnode), never a real fetch."""
+    """Fetch all derivatives signals for one asset, plus a per-source
+    bool: True if that source returned real data, False if it fell back
+    to a default. exchange_flow_7d is always False — it's a hardcoded
+    placeholder (needs Glassnode), never a real fetch. This is the only
+    fetch path now -- get_all_signals(), a thin wrapper that discarded
+    the status half, was deleted 2026-10-09: nightshift/cycle.py has
+    always called this function directly, never the wrapper, which had
+    zero callers in the real pipeline (only tests/simulate_all.py, now
+    updated to call this directly too)."""
     status = {}
     values = {
         "funding_rate":        fetch_funding_rate(asset, status=status),
