@@ -19,9 +19,10 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Five freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+Six freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
 FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
-FROZEN_STRATEGY_VERSION_V3, and FROZEN_STRATEGY_VERSION below. The first
+FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4, and
+FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
 tooling/infra commit made under the freeze, silently: an anchoring fix or
@@ -54,8 +55,28 @@ reports/archive/ohlcv.csv.gz, so a third party can verify a call instead
 of trusting context_hash alone) -- again a change to a frozen-surface
 file with zero effect on what signal gets computed or which call gets
 published, and again moving the hash regardless, for the same
-no-carve-out reason as the third correction. That produced the current
-value, FROZEN_STRATEGY_VERSION. All five constants and all five filtered
+no-carve-out reason as the third correction. That produced
+FROZEN_STRATEGY_VERSION_V4. The fifth correction (2026-10-09) fixed
+should_retrain()'s graduation gate in nightshift/meta_model.py: its
+pre-training branch checked labeled_date_count()/corpus_size(), both
+dependent on corpus.survived -- written only via a call chain ending at
+LiveMonitor.register(), which has zero callers anywhere in this
+codebase, making both counters permanently zero against the real
+corpus. The gate sat above two layers that were already correct:
+train()'s own internal n_dates gate and _df()'s training rows both
+already used labeled_prediction_date_count()/get_prediction_labeled_
+corpus(). should_retrain() is now repointed to that same source, both
+branches (the post-training 20% growth trigger had the identical
+corpus_size() dependency and was fixed in the same pass -- fixing only
+the pre-training branch would have graduated the model once and then
+never retrained on growth again). This is a gating fix, not a change
+to how a call is made: nightshift/cycle.py also moved, for the
+graduation-sidecar write that now feeds a dedicated chain entry on the
+fallback-to-trained transition. Both files are on the frozen surface
+and are hashed whole with no carve-out, so both moving the hash
+regardless of causal relevance is the same no-carve-out reason as the
+third and fourth corrections. That produced the current value,
+FROZEN_STRATEGY_VERSION. All six constants and all six filtered
 sections stay: each slice is real history that already happened under
 those terms and does not get erased by the next correction. Note what
 does NOT reset here, since it's easy to conflate with what does:
@@ -191,10 +212,33 @@ FROZEN_STRATEGY_VERSION_V3 = "06d869d35c9922053016cd0b316ea5ceffc6b58906239dbbe2
 # direction, entry_price, or which config gets ranked/selected -- this
 # moves the hash for the same no-carve-out reason the third correction
 # did (cycle.py/stamp_prediction.py are hashed whole), not because
-# anything about how a call is made, changed. This is the value that
-# actually governs the freeze from this correction forward. Literal
-# here for the same zero-repo-imports reason as the constants above.
-FROZEN_STRATEGY_VERSION = "2dd2221ce744f26e5dad3367a080a118329f22c9020860a0e950c2797985fee0"
+# anything about how a call is made, changed. Governed the freeze from
+# this correction until the fifth below. Superseded -- kept, filter and
+# all, for the same real-history reason the constants above were kept
+# rather than dropped.
+FROZEN_STRATEGY_VERSION_V4 = "2dd2221ce744f26e5dad3367a080a118329f22c9020860a0e950c2797985fee0"
+
+# Fifth correction, declared 2026-10-09: should_retrain()'s graduation
+# gate (nightshift/meta_model.py) repointed from the permanently-zero,
+# LiveMonitor-dependent labeled_date_count()/corpus_size() pair to
+# labeled_prediction_date_count()/get_prediction_labeled_corpus() -- the
+# same source train()'s own internal gate and _df()'s training rows
+# already used, so the broken gate sat above two layers that were
+# already correct. Both the pre-training branch and the post-training
+# 20% growth trigger were fixed in the same pass (same dead dependency,
+# via corpus_size()); fixing only the first would have graduated the
+# model once and then never retrained on growth again.
+# nightshift/cycle.py also moved, for the graduation-sidecar write that
+# now feeds a dedicated METHODOLOGY_CHANGE chain entry on the
+# fallback-to-trained transition. This is a gating fix, not a change to
+# how a call is made -- no change to entry_signal(), direction,
+# entry_price, or which config gets ranked/selected -- but moves the
+# hash for the same no-carve-out reason the third and fourth
+# corrections did (meta_model.py/cycle.py are hashed whole). This is
+# the value that actually governs the freeze from this correction
+# forward. Literal here for the same zero-repo-imports reason as the
+# constants above.
+FROZEN_STRATEGY_VERSION = "0abecbf74ce81a865c95aa45e3859582558292110d451c648ceabb50007fed8e"
 
 # Meta-model graduation gate (nightshift/config.py META_MIN_SAMPLES) --
 # distinct labeled dates, not distinct calls or rows: same-night calls
@@ -384,6 +428,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv2_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V2)
     frozen_sv3_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V3)
     frozen_sv3_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V3)
+    frozen_sv4_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V4)
+    frozen_sv4_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V4)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -418,6 +464,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v3_return_stats": {
             "win": (*_mean_median(frozen_sv3_win), len(frozen_sv3_win)),
             "loss": (*_mean_median(frozen_sv3_loss), len(frozen_sv3_loss)),
+        },
+        "frozen_strategy_version_v4_return_stats": {
+            "win": (*_mean_median(frozen_sv4_win), len(frozen_sv4_win)),
+            "loss": (*_mean_median(frozen_sv4_loss), len(frozen_sv4_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -538,10 +588,19 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs3rs['win'])}")
     print(f"  losses: {_print_return_stats(fs3rs['loss'])}")
 
+    fs4rs = stats["frozen_strategy_version_v4_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V4[:12]} only "
+          f"-- fourth correction (raw-OHLCV archiving added to "
+          f"stamp_prediction.py, archiving-only, no change to signal logic), "
+          f"superseded; kept for history):")
+    print(f"  wins:   {_print_return_stats(fs4rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs4rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- fourth correction (raw-OHLCV archiving added to "
-          f"stamp_prediction.py, archiving-only, no change to signal logic); "
+          f"-- fifth correction (meta-model graduation gate repointed off "
+          f"the permanently-zero labeled_date_count()/corpus_size() pair; "
+          f"gating fix, no change to how a call is made); "
           f"current frozen strategy version):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
