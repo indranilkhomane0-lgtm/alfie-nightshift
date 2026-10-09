@@ -20,10 +20,12 @@ stdlib only. Run directly:
     python3 tests/test_publish_chain.py
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -373,6 +375,133 @@ class OhlcvArchiveSnapshotTest(unittest.TestCase):
         self.assertEqual(entry["payload"]["ohlcv_archive_n"], 1)
         self.assertIsNotNone(entry["payload"]["ohlcv_archive_sha256"])
         self.assertNotIn("ohlcv_archive_read_error", entry["payload"])
+
+
+class GraduationSidecarTest(unittest.TestCase):
+    """_read_and_clear_graduation_sidecar()'s same-day/same-run binding --
+    same discipline as the PIPELINE_FAILURE sidecar (chain entries
+    285/286: a same-day-only check once misread a stale sidecar from an
+    unrelated run), built in from this sidecar's first version rather
+    than added after an incident. Unlike the failure sidecar, there is
+    no fallback payload: any validation failure must yield None, never
+    a best-guess dict, and must always delete the file either way."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.sidecar_path = Path(self._tmp.name) / "meta_model_graduation.json"
+        self._patch = mock.patch.object(publish_chain, "GRADUATION_SIDECAR_PATH", self.sidecar_path)
+        self._patch.start()
+        self._env_patch = mock.patch.dict(os.environ, {"ALFIE_RUN_ID": "run-123"})
+        self._env_patch.start()
+
+    def tearDown(self):
+        self._env_patch.stop()
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def _write(self, **overrides):
+        payload = {
+            "cycle_id": 42, "date": "2026-10-09", "first_training": True,
+            "n_train": 30, "cv_auc": 0.71, "cv_r2": 0.22,
+            "gate_counter_name": "labeled_prediction_date_count",
+            "gate_counter_value": 30, "feature_importances": {"wfo_sharpe": 0.4},
+            "written_at_utc": datetime.now(timezone.utc).isoformat(),
+            "run_id": "run-123",
+        }
+        payload.update(overrides)
+        self.sidecar_path.write_text(json.dumps(payload))
+
+    def test_missing_sidecar_returns_none(self):
+        self.assertIsNone(publish_chain._read_and_clear_graduation_sidecar())
+
+    def test_valid_same_day_same_run_returns_dict(self):
+        self._write()
+        grad = publish_chain._read_and_clear_graduation_sidecar()
+        self.assertIsNotNone(grad)
+        self.assertEqual(grad["cycle_id"], 42)
+        self.assertEqual(grad["gate_counter_name"], "labeled_prediction_date_count")
+
+    def test_valid_sidecar_is_deleted_after_read(self):
+        self._write()
+        publish_chain._read_and_clear_graduation_sidecar()
+        self.assertFalse(self.sidecar_path.exists())
+
+    def test_stale_date_rejected_and_still_deleted(self):
+        stale = datetime.now(timezone.utc) - timedelta(days=1)
+        self._write(written_at_utc=stale.isoformat())
+        self.assertIsNone(publish_chain._read_and_clear_graduation_sidecar())
+        self.assertFalse(self.sidecar_path.exists())
+
+    def test_different_run_id_rejected_and_still_deleted(self):
+        self._write(run_id="some-other-run")
+        self.assertIsNone(publish_chain._read_and_clear_graduation_sidecar())
+        self.assertFalse(self.sidecar_path.exists())
+
+    def test_both_sides_unknown_rejected(self):
+        self._env_patch.stop()
+        self._env_patch = mock.patch.dict(os.environ, {}, clear=True)
+        self._env_patch.start()
+        self._write(run_id="unknown")
+        self.assertIsNone(publish_chain._read_and_clear_graduation_sidecar())
+
+    def test_malformed_json_rejected_and_still_deleted(self):
+        self.sidecar_path.write_text("{not json")
+        self.assertIsNone(publish_chain._read_and_clear_graduation_sidecar())
+        self.assertFalse(self.sidecar_path.exists())
+
+
+class GraduationCliTest(unittest.TestCase):
+    """main()'s --graduation dispatch end to end: a valid sidecar produces
+    a chained METHODOLOGY_CHANGE entry carrying the gate/training fields;
+    no sidecar publishes nothing and exits 0, same shape as a quiet night
+    for every other conditional entry type in this script."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.chain_path = self.root / "chain.jsonl"
+        self.sidecar_path = self.root / "meta_model_graduation.json"
+        self._patches = [
+            mock.patch.object(publish_chain, "CHAIN_PATH", self.chain_path),
+            mock.patch.object(publish_chain, "GRADUATION_SIDECAR_PATH", self.sidecar_path),
+            mock.patch.object(publish_chain, "_stamp_at_publish_time", return_value=False),
+            mock.patch.dict(os.environ, {"ALFIE_RUN_ID": "run-abc"}),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
+
+    def test_valid_sidecar_publishes_methodology_change_with_gate_fields(self):
+        self.sidecar_path.write_text(json.dumps({
+            "cycle_id": 7, "date": "2026-10-09", "first_training": True,
+            "n_train": 30, "cv_auc": 0.65, "cv_r2": 0.15,
+            "gate_counter_name": "labeled_prediction_date_count",
+            "gate_counter_value": 30, "feature_importances": {"wfo_sharpe": 0.5},
+            "written_at_utc": datetime.now(timezone.utc).isoformat(),
+            "run_id": "run-abc",
+        }))
+        with mock.patch.object(sys, "argv", ["publish_chain.py", "--graduation"]):
+            rc = publish_chain.main()
+        self.assertEqual(rc, 0)
+        lines = self.chain_path.read_text().splitlines()
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual(entry["payload"]["type"], "METHODOLOGY_CHANGE")
+        self.assertEqual(entry["payload"]["data"]["cycle_id"], 7)
+        self.assertEqual(entry["payload"]["data"]["gate_counter_name"],
+                          "labeled_prediction_date_count")
+        self.assertEqual(entry["payload"]["data"]["n_train"], 30)
+        self.assertFalse(self.sidecar_path.exists())
+
+    def test_no_sidecar_publishes_nothing_and_exits_zero(self):
+        with mock.patch.object(sys, "argv", ["publish_chain.py", "--graduation"]):
+            rc = publish_chain.main()
+        self.assertEqual(rc, 0)
+        self.assertFalse(self.chain_path.exists())
 
 
 if __name__ == "__main__":

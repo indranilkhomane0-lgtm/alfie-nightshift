@@ -74,6 +74,13 @@ OTS_DIR = REPO_ROOT / "reports" / "ots"
 # than an import into nightshift.cycle (frozen strategy_version surface).
 FAILURE_SIDECAR_PATH = REPO_ROOT / "nightshift" / "logs" / "last_pipeline_failure.json"
 
+# Written by nightshift/cycle.py's _write_graduation_sidecar(), only on
+# the meta-model's one fallback -> trained transition; read here, same
+# run_and_publish.sh invocation, same file-handoff reasoning as the
+# failure sidecar above (meta_model.py is also on the frozen strategy
+# surface).
+GRADUATION_SIDECAR_PATH = REPO_ROOT / "nightshift" / "logs" / "meta_model_graduation.json"
+
 
 def _read_and_clear_failure_sidecar() -> dict:
     """failure_class/exception_type for a PIPELINE_FAILURE payload --
@@ -116,6 +123,40 @@ def _read_and_clear_failure_sidecar() -> dict:
     finally:
         FAILURE_SIDECAR_PATH.unlink(missing_ok=True)
     return info
+
+
+def _read_and_clear_graduation_sidecar() -> dict | None:
+    """The graduation sidecar's parsed content if, and only if, it's
+    both from today (UTC) and from this exact run (ALFIE_RUN_ID match)
+    -- same same-day-is-not-enough binding as
+    _read_and_clear_failure_sidecar(), built in from the start here
+    rather than added after an incident. Returns None on any failure
+    to validate (missing, unparseable, stale date, run_id mismatch,
+    both sides "unknown") -- unlike the failure sidecar, there is no
+    fallback payload to publish: a graduation entry only makes sense
+    when the sidecar genuinely proves graduation happened THIS run, so
+    the caller's job is to publish nothing at all rather than publish
+    something with unknown fields. Always deletes the sidecar if it
+    exists, success or not, so a stale or rejected file never leaks
+    into a later run's check."""
+    try:
+        raw = json.loads(GRADUATION_SIDECAR_PATH.read_text())
+        written = datetime.fromisoformat(raw["written_at_utc"])
+        sidecar_run_id = raw.get("run_id", "unknown")
+        current_run_id = os.environ.get("ALFIE_RUN_ID", "unknown")
+        same_day = written.date() == datetime.now(timezone.utc).date()
+        same_run = (
+            sidecar_run_id != "unknown"
+            and current_run_id != "unknown"
+            and sidecar_run_id == current_run_id
+        )
+        if same_day and same_run:
+            return raw
+        return None
+    except Exception:
+        return None
+    finally:
+        GRADUATION_SIDECAR_PATH.unlink(missing_ok=True)
 
 
 def canonical(obj) -> bytes:
@@ -392,6 +433,17 @@ def main() -> int:
              "unexplained discontinuity in it",
     )
     ap.add_argument(
+        "--graduation",
+        action="store_true",
+        help="Publish a METHODOLOGY_CHANGE entry for the meta-model's "
+             "fallback-to-trained transition, reading "
+             "nightshift/logs/meta_model_graduation.json. Conditioned "
+             "entirely on finding a valid (same-day, same-run) sidecar -- "
+             "if none exists, publishes nothing and exits 0, same as "
+             "there being no corresponding entry type when nothing "
+             "happened this run.",
+    )
+    ap.add_argument(
         "--data",
         metavar="JSON",
         help="Optional structured data for a --methodology entry, as a JSON "
@@ -418,6 +470,36 @@ def main() -> int:
             except json.JSONDecodeError as exc:
                 print(f"error: --data is not valid JSON: {exc}", file=sys.stderr)
                 return 2
+    elif args.graduation:
+        grad = _read_and_clear_graduation_sidecar()
+        if grad is None:
+            print("no valid graduation sidecar for this run -- nothing to publish")
+            return 0
+        payload = {
+            "type": "METHODOLOGY_CHANGE",
+            "description": (
+                f"Meta-model graduated from fallback (plain GT-score sort) "
+                f"to trained (gradient-boosted classifier + regressor) for "
+                f"the first time, cycle {grad.get('cycle_id')} "
+                f"({grad.get('date')}). Gate: {grad.get('gate_counter_name')}"
+                f"()={grad.get('gate_counter_value')} "
+                f">= META_MIN_SAMPLES (30). Trained on n={grad.get('n_train')} "
+                f"rows; cross-validated AUC={grad.get('cv_auc'):.3f}, "
+                f"R²={grad.get('cv_r2'):.3f}."
+            ),
+            "changed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "data": {
+                "cycle_id": grad.get("cycle_id"),
+                "date": grad.get("date"),
+                "first_training": grad.get("first_training"),
+                "n_train": grad.get("n_train"),
+                "cv_auc": grad.get("cv_auc"),
+                "cv_r2": grad.get("cv_r2"),
+                "gate_counter_name": grad.get("gate_counter_name"),
+                "gate_counter_value": grad.get("gate_counter_value"),
+                "feature_importances": grad.get("feature_importances"),
+            },
+        }
     elif args.failed:
         failure_info = _read_and_clear_failure_sidecar()
         payload = {
@@ -443,8 +525,8 @@ def main() -> int:
             payload["data_completeness"] = json.loads(completeness_path.read_text())
     else:
         if not args.report:
-            print("error: --report, --brief, --failed, or --methodology required",
-                  file=sys.stderr)
+            print("error: --report, --brief, --failed, --methodology, or "
+                  "--graduation required", file=sys.stderr)
             return 2
         payload = json.loads(Path(args.report).read_text())
         payload["type"] = payload.get("type", "NIGHTLY_BRIEF")

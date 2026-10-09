@@ -11,7 +11,13 @@ from nightshift.config import (META_MIN_SAMPLES, META_SURVIVE_THRESHOLD,
     META_LIVE_WINDOW, META_RETRAIN_EVERY, META_N_ESTIMATORS,
     META_MAX_DEPTH, META_LEARNING_RATE, META_SEED, ROOT)
 from nightshift.db import (get_labelled_corpus, corpus_size, regime_corpus_size,
-    labeled_date_count, get_prediction_labeled_corpus, labeled_prediction_date_count)
+    get_prediction_labeled_corpus, labeled_prediction_date_count)
+# labeled_date_count (nightshift/db.py) is deliberately not imported here
+# any more -- should_retrain() no longer calls it (see that method's own
+# docstring for why), and it is otherwise uncalled anywhere in this
+# codebase as of this change. Left defined in db.py, not deleted: it is
+# the correct gate for a live-deployment pipeline that doesn't exist yet
+# (LiveMonitor.register() is never called), not a mistake to remove.
 
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
@@ -170,8 +176,41 @@ class MetaModel:
                 "model_trained_n":self._n_train}
 
     def should_retrain(self, cycle_id):
-        if not self._trained: return labeled_date_count() >= META_MIN_SAMPLES
-        growth = corpus_size() - self._n_train
+        """Gates on labeled_prediction_date_count()/get_prediction_labeled_corpus()
+        -- the same prediction-graded source train() already checks
+        internally (see train()'s own n_dates gate) and _df() already
+        trains on -- not labeled_date_count()/corpus_size(), which both
+        depend on corpus.survived, written only via a call chain ending
+        at LiveMonitor.register(). That function has zero callers
+        anywhere in this codebase (confirmed by grep; disclosed on the
+        chain), so both of those counters are permanently zero against
+        the real corpus.db (633 rows, 0 with survived set, verified)
+        -- this method's pre-training branch could never return True,
+        and the post-training branch's growth trigger could never fire
+        either, no matter how large the real, live prediction-graded
+        corpus actually grew. Fixing only one of the two branches would
+        graduate the model once and then retrain it only on the fixed
+        META_RETRAIN_EVERY cadence, never on growth -- both are fixed
+        in this same pass.
+
+        labeled_date_count()/corpus_size()/the live-monitor path are
+        left in place, not deleted -- they are a gate for a live-
+        deployment pipeline that doesn't exist yet (LiveMonitor.register()
+        is never called), not a mistake to remove. If that pipeline is
+        ever wired up, this is the method that would need revisiting
+        again, deliberately, not a case of two counters silently
+        drifting back out of sync.
+
+        growth is computed via get_prediction_labeled_corpus() directly
+        (the same underlying rows _df() wraps), not via self._df()
+        itself -- that would rebuild the full dropna'd DataFrame a
+        second time on every retrain-triggering cycle, for a threshold
+        check where the un-dropna'd row count is already an adequate
+        proxy for "has the corpus grown materially since the last fit."
+        """
+        if not self._trained:
+            return labeled_prediction_date_count() >= META_MIN_SAMPLES
+        growth = len(get_prediction_labeled_corpus()) - self._n_train
         return (cycle_id % META_RETRAIN_EVERY == 0) or (growth >= self._n_train*0.20)
 
     def collect_pending_outcomes(self, live_performance, live_drawdowns, live_n_trades):

@@ -1,5 +1,5 @@
-import json, logging, time
-from datetime import date, datetime
+import json, logging, os, time
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -7,7 +7,7 @@ import pandas as pd
 import ccxt
 
 from nightshift.config import (ASSETS, EXCHANGE_ID, OHLCV_DAYS,
-    BRIEF_DIR, REGIME_NAMES, META_LIVE_WINDOW, OPTUNA_TRIALS)
+    BRIEF_DIR, LOG_DIR, REGIME_NAMES, META_LIVE_WINDOW, OPTUNA_TRIALS)
 from nightshift.db import (init_db, log_cycle_start, log_cycle_end,
     log_cycle_error, insert_config_entry, labeled_prediction_date_count)
 from nightshift.regime_engine import RegimeEngine, compute_hmm_features
@@ -19,6 +19,14 @@ from nightshift.strategies import STRATEGY_REGISTRY
 from nightshift.derivatives import get_all_signals_with_status
 
 log = logging.getLogger(__name__)
+
+# Sidecar for publish_chain.py --graduation, written only on the one
+# fallback->trained transition, never on a routine retrain. Read and
+# cleared by that command in the same run_and_publish.sh invocation --
+# see _write_graduation_sidecar()'s docstring for the run_id-binding
+# discipline this mirrors from the PIPELINE_FAILURE sidecar (chain
+# entries 285/286).
+GRADUATION_SIDECAR_PATH = LOG_DIR / "meta_model_graduation.json"
 
 # ── Real Binance OHLCV fetcher ────────────────────────────────────────────────
 
@@ -68,6 +76,48 @@ def load_derivatives_signals(asset: str) -> dict:
     """Placeholder — wire in Coinalyze/Coinglass API here later."""
     return {"funding_rate":0.01,"oi_trend_7d":0.02,"exchange_flow_7d":-0.01,
             "longshort_ratio":0.52,"btc_dominance_delta":0.0}
+
+def _write_graduation_sidecar(cycle_id, meta) -> None:
+    """Written only on the meta-model's one fallback -> trained
+    transition -- the caller (_stages(), Stage 6) checks
+    `ok and not was_trained` before calling this, so a routine retrain
+    on an already-trained model never reaches here. Best-effort, never
+    raises: a failure writing this sidecar must never affect tonight's
+    cycle, same philosophy as every other sidecar in this pipeline.
+
+    run_id: run_and_publish.sh exports ALFIE_RUN_ID once per invocation,
+    inherited here and by the publish_chain.py --graduation call that
+    follows in the same shell. Stamping it lets the reader require
+    same-run, not just same-day, before trusting this sidecar --
+    chain entries 285/286 are what a same-day-only check already cost
+    this project once, for the PIPELINE_FAILURE sidecar; this one is
+    built with that binding from day one rather than added after an
+    incident.
+
+    gate_counter_name/gate_counter_value record WHICH counter actually
+    opened the gate and at what value, deliberately not hardcoded --
+    should_retrain()'s pre-training branch is the only caller that can
+    produce this transition, and it currently reads
+    labeled_prediction_date_count(); if that ever changes again, this
+    sidecar should keep naming the real counter, not a stale one."""
+    try:
+        GRADUATION_SIDECAR_PATH.parent.mkdir(parents=True, exist_ok=True)
+        GRADUATION_SIDECAR_PATH.write_text(json.dumps({
+            "cycle_id": cycle_id,
+            "date": str(date.today()),
+            "first_training": True,
+            "n_train": meta._n_train,
+            "cv_auc": meta._cv_clf,
+            "cv_r2": meta._cv_reg,
+            "gate_counter_name": "labeled_prediction_date_count",
+            "gate_counter_value": labeled_prediction_date_count(),
+            "feature_importances": meta.feature_importances(),
+            "written_at_utc": datetime.now(timezone.utc).isoformat(),
+            "run_id": os.environ.get("ALFIE_RUN_ID", "unknown"),
+        }))
+        log.info("  Graduation sidecar written -> %s", GRADUATION_SIDECAR_PATH)
+    except Exception as exc:
+        log.warning("could not write graduation sidecar (non-fatal): %s", exc)
 
 # ── Brief formatter ───────────────────────────────────────────────────────────
 
@@ -215,10 +265,14 @@ class NightShiftCycle:
         # Stage 6 — meta-model ranking
         log.info("Stage 6/7: Meta-model ranking …")
         if self.meta.should_retrain(self.cycle_id):
+            was_trained = self.meta._trained
             ok = self.meta.train()
             if ok:
                 log.info("  Retrained — AUC=%.3f R²=%.3f",
                          self.meta._cv_clf, self.meta._cv_reg)
+                if not was_trained:
+                    log.info("  Meta-model graduated: fallback -> trained")
+                    _write_graduation_sidecar(self.cycle_id, self.meta)
         cfg_dicts = []
         for res in mc_passed:
             ds  = signals.get(res.asset, {})

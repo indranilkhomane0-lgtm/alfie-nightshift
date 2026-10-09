@@ -193,6 +193,15 @@ if [ -f "$TODAY_BRIEF" ]; then
   elif ! grep -q "brief_$(date -u +%Y%m%d).txt" reports/chain.jsonl 2>/dev/null; then
     "$PY" nightshift/publish_chain.py --brief "$TODAY_BRIEF" >> "$LOG" 2>&1
     "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
+    # GRADUATION -- conditioned entirely on nightshift/cycle.py having
+    # written the sidecar this run (the meta-model's one fallback ->
+    # trained transition, never a routine retrain). --graduation itself
+    # checks the sidecar's run_id/date and publishes nothing if it
+    # isn't a valid match -- this call is unconditional, same shape as
+    # self_audit.py's own call earlier in this script, which also runs
+    # every time and is a no-op on a night with nothing to report.
+    "$PY" nightshift/publish_chain.py --graduation >> "$LOG" 2>&1
+    "$PY" nightshift/anchor_ots.py >> "$LOG" 2>&1 || true
   else
     echo "brief already chained -- skipping duplicate" >> "$LOG"
   fi
