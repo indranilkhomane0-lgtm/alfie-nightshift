@@ -1,0 +1,182 @@
+{
+  "checks": [
+    {
+      "detail": {
+        "gap_dates": [],
+        "range": [
+          "2026-07-18",
+          "2026-10-09"
+        ]
+      },
+      "name": "calendar_coverage",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "cutoff_index": 12,
+        "missing_after_cutoff": [],
+        "unexpected_before_cutoff": []
+      },
+      "name": "code_version_presence",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "missing_entirely": [],
+        "no_proof_count": 0,
+        "orphan_hash_no_ots": [],
+        "ots_binary_available": true,
+        "pending_past_grace": []
+      },
+      "name": "ots_proof_coverage",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "flagged": [],
+        "known_limitation": "AST name-matching only, not type-resolved: dict dispatch, getattr, and decorator-wrapped calls will not be seen as calls and can produce false positives here.",
+        "suppressed": [
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/wfo_engine.py",
+            "lineno": 151,
+            "name": "objective",
+            "reason": "nightshift/wfo_engine.py -- a nested function passed BY REFERENCE to optuna's study.optimize(objective, ...), which invokes it internally. Never appears as an ast.Call node's func, only as a Call's argument -- a different AST blind spot than dict dispatch, same conclusion (real, live, not dead)"
+          },
+          {
+            "category": "deliberately_dead_pending_pipeline",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/db.py",
+            "lineno": 175,
+            "name": "get_labelled_corpus",
+            "reason": "nightshift/db.py -- same corpus.survived dependency and same not-yet-built live-deployment pipeline as labeled_date_count()"
+          },
+          {
+            "category": "deliberately_dead_pending_pipeline",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/db.py",
+            "lineno": 193,
+            "name": "labeled_date_count",
+            "reason": "nightshift/db.py -- the correct gate for a live-deployment pipeline that doesn't exist yet (LiveMonitor.register() has zero callers anywhere); disclosed on the chain"
+          },
+          {
+            "category": "deliberately_dead_pending_pipeline",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 28,
+            "name": "register",
+            "reason": "nightshift/live_monitor.py LiveMonitor.register() -- zero callers anywhere; the live-deployment pipeline this would wire up was never built"
+          },
+          {
+            "category": "deliberately_dead_pending_pipeline",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/live_monitor.py",
+            "lineno": 33,
+            "name": "add_return",
+            "reason": "nightshift/live_monitor.py LiveMonitor.add_return() -- feeds self._active, which register() never populates; same unwired pipeline as register()"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 5,
+            "name": "_safe_ret",
+            "reason": "called only from within the four dict-dispatched *_strategy functions above (nightshift/strategies/__init__.py) -- unreachable here only because its own callers are, for the same reason"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 15,
+            "name": "momentum_strategy",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['momentum']['fn'] (nightshift/strategies/__init__.py), called from nightshift/cycle.py as spec['fn'](...) -- a subscript, not an ast.Call node"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 31,
+            "name": "momentum_params",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['momentum']['param_space'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 37,
+            "name": "mean_rev_strategy",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['mean_rev']['fn'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 60,
+            "name": "mean_rev_params",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['mean_rev']['param_space'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 67,
+            "name": "relative_strategy",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['relative']['fn'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 90,
+            "name": "relative_params",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['relative']['param_space'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 96,
+            "name": "breakout_strategy",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['breakout']['fn'], same mechanism as momentum_strategy"
+          },
+          {
+            "category": "ast_blind_spot_confirmed_live",
+            "file": "/Users/indranilkhomane/alfie-nightshift/nightshift/strategies/__init__.py",
+            "lineno": 150,
+            "name": "breakout_params",
+            "reason": "dict-dispatched via STRATEGY_REGISTRY['breakout']['param_space'], same mechanism as momentum_strategy"
+          }
+        ],
+        "suppression_table_issues": []
+      },
+      "name": "dead_code_reachability",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "constant_columns": [],
+        "note": "constant-column check catches frozen placeholders, not varying-but-mislabeled features",
+        "sidecar_flags": []
+      },
+      "name": "feature_cols_populated",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "gated_but_unimplemented": [],
+        "implemented_but_never_gated": []
+      },
+      "name": "gate_registry_match",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "decreases": []
+      },
+      "name": "predictions_row_count_monotonic",
+      "status": "PASS"
+    },
+    {
+      "detail": {
+        "broken_verify_commands": [],
+        "constant_mismatches": [],
+        "known_limitation": "Path extraction is one regex over free text/shell/XML, not a real markdown/shell/plist parser -- URLs and '...'-truncated example hashes are explicitly excluded, everything else matching word/word.ext is checked. Numeric-constant checking only recognises the literal `NAME=NUMBER` citation style.",
+        "missing_paths": []
+      },
+      "name": "doc_reference_integrity",
+      "status": "PASS"
+    }
+  ],
+  "date_utc": "20261010",
+  "generated_at_utc": "2026-10-10T00:01:09.235675+00:00",
+  "known_limitations": "A passing audit means 'no known regression shape reappeared,' not 'the pipeline is correct.' See module docstring: this checklist cannot see the WFO look-ahead class of bug (reachability != correctness), mislabeled-but-varying features (populated != meaningful), stub implementations (symbol existence != behavior), or anything outside nightshift/.",
+  "overall_status": "PASS"
+}
