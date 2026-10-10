@@ -19,6 +19,7 @@ stdlib only. Run directly:
     python3 tests/test_watchdog.py
 """
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -185,13 +186,25 @@ class ReportAuditRegressionsRoutingTest(unittest.TestCase):
     default (lower urgency, per spec: 'worth knowing, lower urgency')."""
 
     def setUp(self):
-        self._tmp_log = Path(watchdog.LOG_PATH)
+        # Isolate the real nightshift/logs/watchdog.log -- log() writes
+        # there unconditionally, and without this, every run of this
+        # test class pollutes the production log with synthetic
+        # "gate_registry_match newly FAIL/PASS" lines indistinguishable
+        # from a real alert to anyone reading it later. Caught exactly
+        # that way: real entries never showed gate_registry_match
+        # failing, but watchdog.log had lines claiming it did.
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._log_patch = mock.patch.object(
+            watchdog, "LOG_PATH", Path(self._tmp_dir.name) / "watchdog.log")
+        self._log_patch.start()
         self._patch = mock.patch.object(watchdog, "notify_offmachine",
                                          return_value=(True, "HTTP 200"))
         self.mock_notify = self._patch.start()
 
     def tearDown(self):
         self._patch.stop()
+        self._log_patch.stop()
+        self._tmp_dir.cleanup()
 
     def test_regression_alerted_at_urgent_priority(self):
         prev = _audit_entry({"gate_registry_match": {"status": "PASS", "finding_count": 0}})
