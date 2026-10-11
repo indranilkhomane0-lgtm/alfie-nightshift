@@ -71,6 +71,17 @@ specific failure mode this is built to not reproduce. The baseline is
 the chain itself (the last two AUDIT_RESULT entries), not a separate
 state file -- nothing to lose, nothing to rebuild.
 
+Graduation ping, as of 2026-10-11: _report_graduation() fires one
+dedicated, high-priority off-machine notification the moment the
+meta-model's one-time fallback -> trained METHODOLOGY_CHANGE entry
+appears on the chain (see chain entries 382/383). This is the durable
+answer to "ping me when it graduates" -- it runs nightly via launchd
+regardless of whether any chat session or terminal is open, same as
+every other alert in this file. Idempotent via
+GRADUATION_NOTIFIED_PATH, written only after a CONFIRMED ntfy delivery,
+so a transient delivery failure retries the next night instead of
+silently giving up on the one notification this exists to guarantee.
+
 Usage (called by launchd, see com.alfie.nightshift.watchdog.plist):
     python3 nightshift/watchdog.py
 """
@@ -480,6 +491,63 @@ def _report_audit_regressions(entries: list[dict]) -> bool:
     return not regressions
 
 
+GRADUATION_NOTIFIED_PATH = ROOT / "nightshift" / "logs" / ".graduation_notified"
+
+
+def find_graduation_entry(entries: list[dict]) -> dict | None:
+    """The one-time METHODOLOGY_CHANGE entry nightshift/cycle.py's
+    graduation sidecar + publish_chain.py's --graduation flag publish on
+    the meta-model's fallback -> trained transition (see chain entries
+    382/383) -- payload.data.first_training is True only on that entry,
+    never on a routine retrain afterward. Returns the first match (there
+    should only ever be one, ever), or None if graduation hasn't
+    happened yet."""
+    for e in entries:
+        p = e.get("payload", {})
+        if p.get("type") == "METHODOLOGY_CHANGE" and p.get("data", {}).get("first_training") is True:
+            return e
+    return None
+
+
+def _report_graduation(entries: list[dict]) -> None:
+    """Fires exactly once, ever: a dedicated, high-salience off-machine
+    notification the moment the graduation entry appears on the chain --
+    the durable answer to 'ping me when it graduates', independent of
+    whether a chat session or terminal is open. This runs nightly via
+    launchd regardless (see com.alfie.nightshift.watchdog.plist), the
+    same infrastructure chain entry 256 built for a missed pipeline
+    night, so the notification reaches a phone whether or not anyone is
+    watching.
+
+    Idempotent via GRADUATION_NOTIFIED_PATH, written only after a
+    CONFIRMED delivery -- if ntfy delivery fails tonight, the marker is
+    not written and this retries on the next watchdog run, rather than
+    silently giving up on the one notification this exists to guarantee.
+    If the marker is ever lost, the worst case is one redundant
+    re-announcement of a fact that's already true and already on the
+    chain -- never silence, which is the failure mode every alert in
+    this file is built against."""
+    if GRADUATION_NOTIFIED_PATH.exists():
+        return
+    entry = find_graduation_entry(entries)
+    if entry is None:
+        return
+    data = entry.get("payload", {}).get("data", {})
+    msg = (
+        f"Meta-model graduated: fallback -> trained. n_train={data.get('n_train')} "
+        f"cv_auc={data.get('cv_auc')} cv_r2={data.get('cv_r2')} "
+        f"gate={data.get('gate_counter_name')}={data.get('gate_counter_value')}."
+    )
+    delivered, detail = notify_offmachine("Night Shift GRADUATED", msg, priority="urgent")
+    log(f"{'ntfy delivered' if delivered else 'ntfy FAILED'} — graduation notice — {detail}")
+    if delivered:
+        try:
+            GRADUATION_NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+            GRADUATION_NOTIFIED_PATH.write_text(entry.get("entry_hash", "") + "\n")
+        except Exception as exc:
+            log(f"could not write graduation-notified marker (non-fatal, will retry): {exc}")
+
+
 def _report_credential_status() -> bool:
     """Runs check_credential_expiry(), logs the result, and alerts for
     anything other than 'ok'. Three distinct alert wordings on purpose --
@@ -509,7 +577,9 @@ def _report_credential_status() -> bool:
 def main() -> int:
     try:
         credential_ok = _report_credential_status()
-        audit_ok = _report_audit_regressions(_load_chain_entries())
+        chain_entries = _load_chain_entries()
+        audit_ok = _report_audit_regressions(chain_entries)
+        _report_graduation(chain_entries)
 
         today = datetime.now(IST).date()
         entry = last_entry()

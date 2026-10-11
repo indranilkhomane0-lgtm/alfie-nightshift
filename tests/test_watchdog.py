@@ -259,5 +259,103 @@ class NotifyOffmachinePriorityTest(unittest.TestCase):
         self.assertEqual(req.headers.get("Tags"), "information_source")
 
 
+def _graduation_entry(first_training=True, **data_overrides):
+    data = {
+        "cycle_id": 42, "date": "2026-10-20", "first_training": first_training,
+        "n_train": 30, "cv_auc": 0.71, "cv_r2": 0.22,
+        "gate_counter_name": "labeled_prediction_date_count", "gate_counter_value": 30,
+    }
+    data.update(data_overrides)
+    return {
+        "entry_hash": "deadbeef" * 8,
+        "payload": {"type": "METHODOLOGY_CHANGE", "data": data},
+    }
+
+
+class FindGraduationEntryTest(unittest.TestCase):
+    def test_no_graduation_entry_returns_none(self):
+        self.assertIsNone(watchdog.find_graduation_entry([]))
+        self.assertIsNone(watchdog.find_graduation_entry(
+            [{"payload": {"type": "NIGHTLY_BRIEF"}}]))
+
+    def test_unrelated_methodology_change_is_not_mistaken_for_graduation(self):
+        """A METHODOLOGY_CHANGE entry without first_training=True (e.g.
+        the dead-code triage disclosure, or any other methodology note)
+        must not be mistaken for graduation."""
+        other = {"payload": {"type": "METHODOLOGY_CHANGE", "data": {"some_other_field": 1}}}
+        self.assertIsNone(watchdog.find_graduation_entry([other]))
+
+    def test_graduation_entry_is_found(self):
+        grad = _graduation_entry()
+        found = watchdog.find_graduation_entry([{"payload": {"type": "NIGHTLY_BRIEF"}}, grad])
+        self.assertIs(found, grad)
+
+
+class ReportGraduationTest(unittest.TestCase):
+    """_report_graduation()'s durability contract: fires once, off-machine,
+    only after a confirmed delivery -- a failed delivery must retry on
+    the next run rather than silently marking itself done."""
+
+    def setUp(self):
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._marker_path = Path(self._tmp_dir.name) / ".graduation_notified"
+        self._marker_patch = mock.patch.object(
+            watchdog, "GRADUATION_NOTIFIED_PATH", self._marker_path)
+        self._marker_patch.start()
+        self._log_patch = mock.patch.object(
+            watchdog, "LOG_PATH", Path(self._tmp_dir.name) / "watchdog.log")
+        self._log_patch.start()
+
+    def tearDown(self):
+        self._log_patch.stop()
+        self._marker_patch.stop()
+        self._tmp_dir.cleanup()
+
+    def test_no_graduation_yet_sends_nothing_and_writes_no_marker(self):
+        with mock.patch.object(watchdog, "notify_offmachine") as mock_notify:
+            watchdog._report_graduation([])
+        mock_notify.assert_not_called()
+        self.assertFalse(self._marker_path.exists())
+
+    def test_graduation_found_and_delivered_sends_once_and_writes_marker(self):
+        grad = _graduation_entry()
+        with mock.patch.object(watchdog, "notify_offmachine",
+                                return_value=(True, "HTTP 200")) as mock_notify:
+            watchdog._report_graduation([grad])
+        mock_notify.assert_called_once()
+        args, kwargs = mock_notify.call_args
+        self.assertEqual(args[0], "Night Shift GRADUATED")
+        self.assertIn("n_train=30", args[1])
+        self.assertEqual(kwargs.get("priority"), "urgent")
+        self.assertTrue(self._marker_path.exists())
+
+    def test_already_notified_never_sends_again(self):
+        self._marker_path.parent.mkdir(parents=True, exist_ok=True)
+        self._marker_path.write_text("deadbeef" * 8 + "\n")
+        grad = _graduation_entry()
+        with mock.patch.object(watchdog, "notify_offmachine") as mock_notify:
+            watchdog._report_graduation([grad])
+        mock_notify.assert_not_called()
+
+    def test_failed_delivery_does_not_write_marker_so_it_retries(self):
+        grad = _graduation_entry()
+        with mock.patch.object(watchdog, "notify_offmachine",
+                                return_value=(False, "NTFY_TOPIC not set in .env")):
+            watchdog._report_graduation([grad])
+        self.assertFalse(self._marker_path.exists(),
+                          "a failed delivery must not be marked as sent -- next run must retry")
+
+    def test_retries_after_a_failed_delivery_once_ntfy_recovers(self):
+        grad = _graduation_entry()
+        with mock.patch.object(watchdog, "notify_offmachine", return_value=(False, "down")):
+            watchdog._report_graduation([grad])
+        self.assertFalse(self._marker_path.exists())
+        with mock.patch.object(watchdog, "notify_offmachine",
+                                return_value=(True, "HTTP 200")) as mock_notify:
+            watchdog._report_graduation([grad])
+        mock_notify.assert_called_once()
+        self.assertTrue(self._marker_path.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
