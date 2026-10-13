@@ -1,0 +1,32 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261013  ·  2026-10-13 00:01 UTC  ·  14s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=16  trans_p=5%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 28 distinct labeled dates  STANDBY — need 30 dates
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+
+  [1] BTC/USDT_mean_rev_6b44893401aa
+      WFO  Sharpe=3.45  Sortino=9.26  MaxDD=-2.1%
+      GT=2.998  stability_σ=n/a
+      MC   G1=3.45 G2=3.21 G3=2.94 G4=3.45 G5_sens=0.34
+      META [META] P(survive)=1.00  pred_decay=2.00  uncertainty=±0.000  rank=1.9999  (regime_n=0)
+      Params: {"rsi_low": 35, "rsi_high": 67, "rsi_period": 12, "max_hold_days": 9}
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
