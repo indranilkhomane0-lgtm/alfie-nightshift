@@ -1,0 +1,26 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261017  ·  2026-10-17 00:01 UTC  ·  14s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=98%  days_in=4  trans_p=5%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL ──────────────────────────────────────────────────────
+  Corpus: 30 distinct labeled dates  ACTIVE
+
+── TOP CONFIGURATIONS ──────────────────────────────────────────────
+  No configs passed all gates tonight.
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
