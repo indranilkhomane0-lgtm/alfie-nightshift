@@ -208,6 +208,32 @@ This is disclosed on the chain as a METHODOLOGY_CHANGE entry published
 2026-08-01. It is a disclosure, not yet a fix — `register()` is still
 unwired as of this commit.
 
+### Known open issue — `run_nightshift.py --demo` pollutes the real corpus and model
+
+`cmd_demo()` (run_nightshift.py) seeds 60 fully synthetic `DEMO_*` rows
+directly into the real `corpus.db` (via `insert_config_entry()` and
+`update_live_outcome()`, bypassing `LiveMonitor` entirely) and then
+calls `MetaModel.train(force=True)`, which saves straight to the real
+`MODEL_PATH` (`nightshift/meta_model.pkl`). This is a documented,
+intentional manual-testing tool, not a bug in itself — but it is the
+same defect *class* disclosed on the chain as the fourth instance of
+"a check or signal silently reporting the wrong thing because
+something else wrote into it" (`tests/test_meta_model.py` writing to
+the same pickle without patching `MODEL_PATH`), through a door
+`tests/run_isolated.py`'s test-suite lockdown doesn't cover at all —
+and it's worse here, because it injects fabricated rows into the
+corpus the model actually trains on, not just the model artifact
+itself. Running `--demo` again after a clean graduation would
+reintroduce exactly the same kind of pollution this file's "Known
+open issue" neighbor above already cost the project eight days of an
+undetected real training event for.
+
+Not fixed in this pass, deliberately queued rather than built: the
+likely right fix is a separate corpus/model path for `--demo` (so it
+never touches the real `corpus.db` or the real `MODEL_PATH` at all),
+not making the in-place write "safer" — the same lesson the test-suite
+fix already drew (patch the path, don't harden the write).
+
 ### Fixed defect — WFO metrics were not genuinely out-of-sample (2026-06-18 to 2026-08-04)
 
 From the system's initial commit, 607da1f (2026-06-18), through
