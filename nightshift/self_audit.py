@@ -942,6 +942,89 @@ def check_doc_reference_integrity() -> dict:
     return finding
 
 
+# ── Check 9: test-isolation guard presence ──────────────────────────────
+
+TEST_ISOLATION_GUARD_PATH = ROOT / "tests" / "run_isolated.py"
+# Structural proxies that a real lockdown+manifest implementation would
+# contain -- not proof of correctness, just proof the file hasn't been
+# gutted into a no-op passthrough. The actual behavioral proof (does it
+# really catch a real write) was done once by hand: temporarily
+# reverting tests/test_meta_model.py's MODEL_PATH patch and confirming
+# run_isolated.py failed loudly and named the offending test, then
+# restoring it -- not something to re-run nightly, which is exactly why
+# this check exists to confirm the machinery is still *present*.
+_GUARD_REQUIRED_SNIPPETS = ("chmod", "nightshift", "reports", "core", "_manifest", "_lockdown")
+
+
+def check_test_isolation_guard() -> dict:
+    """Structural check that tests/run_isolated.py -- the fix for four
+    confirmed instances of a test writing to a real production path
+    (nightshift/meta_model.pkl, nightshift/logs/watchdog.log, both
+    gitignored, so git itself never showed either happening) -- is
+    actually in place and actually documented as the way to run this
+    suite, not just present once in history. Three distinct ways this
+    can go stale, checked separately so the finding says exactly what
+    broke:
+      - the guard script is missing entirely
+      - the guard script exists but looks gutted (none of the
+        structural markers a real chmod-lockdown + hash-manifest
+        implementation would contain)
+      - the documented entry point has drifted: README.md no longer
+        mentions it, or something in the same narrow doc-citation scope
+        doc_reference_integrity already uses (run_and_publish.sh,
+        launchd/*.plist) invokes `unittest discover` directly --
+        bypassing the guard in exactly the place a reader would
+        actually run tests from
+
+    Routes to the watchdog like every other audit finding now (see
+    watchdog.py's check_audit_regressions()) -- a guard nobody runs is
+    the fifth instance of this pattern waiting to happen, and this is
+    what gives that fact somewhere to land before it does."""
+    finding = {
+        "name": "test_isolation_guard", "status": "PASS",
+        "detail": {"missing": [], "bypassed": []},
+    }
+    if not TEST_ISOLATION_GUARD_PATH.exists():
+        finding["detail"]["missing"].append("tests/run_isolated.py does not exist")
+    else:
+        try:
+            text = TEST_ISOLATION_GUARD_PATH.read_text()
+            missing_markers = [s for s in _GUARD_REQUIRED_SNIPPETS if s not in text]
+            if missing_markers:
+                finding["detail"]["missing"].append(
+                    f"tests/run_isolated.py exists but is missing expected "
+                    f"markers {missing_markers} -- may have been gutted")
+        except Exception as exc:
+            finding["detail"]["missing"].append(
+                f"could not read tests/run_isolated.py: {exc}")
+
+    readme_path = ROOT / "README.md"
+    if readme_path.exists():
+        try:
+            readme_text = readme_path.read_text()
+            if "tests/run_isolated.py" not in readme_text:
+                finding["detail"]["bypassed"].append(
+                    "README.md no longer documents tests/run_isolated.py "
+                    "as the test entry point")
+        except Exception as exc:
+            finding["detail"]["bypassed"].append(f"could not read README.md: {exc}")
+    else:
+        finding["detail"]["bypassed"].append("README.md not found -- cannot confirm it's documented")
+
+    for path in [ROOT / "run_and_publish.sh"] + sorted((ROOT / "launchd").glob("*.plist")):
+        try:
+            text = path.read_text()
+        except Exception:
+            continue
+        if "unittest" in text and "discover" in text and "run_isolated.py" not in text:
+            finding["detail"]["bypassed"].append(
+                f"{path.name} invokes unittest discover directly, bypassing the guard")
+
+    if finding["detail"]["missing"] or finding["detail"]["bypassed"]:
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -963,6 +1046,7 @@ def main() -> int:
             _run_check(check_gate_registry_match),
             _run_check(check_predictions_row_count_monotonic, entries),
             _run_check(check_doc_reference_integrity),
+            _run_check(check_test_isolation_guard),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1039,6 +1123,7 @@ FINDING_KEYS = {
     "gated_but_unimplemented", "implemented_but_never_gated",
     "decreases",
     "missing_paths", "broken_verify_commands", "constant_mismatches",
+    "missing", "bypassed",
 }
 
 

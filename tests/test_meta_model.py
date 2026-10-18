@@ -82,10 +82,20 @@ class ShouldRetrainGateTest(unittest.TestCase):
         root = Path(self._tmp.name)
         self.db_path = root / "corpus.db"
         self.pred_path = root / "predictions.jsonl"
+        self.model_path = root / "meta_model.pkl"
         self.pred_path.write_text("")
         self._patches = [
             mock.patch.object(nsdb, "DB_PATH", self.db_path),
             mock.patch.object(nsdb, "PREDICTIONS_PATH", self.pred_path),
+            # Every test() call below that succeeds hits _save(), which
+            # writes MODEL_PATH unconditionally. Unpatched, this class
+            # wrote straight through to the real nightshift/meta_model.pkl
+            # (confirmed by filesystem birth-time: 2026-10-09 22:52:58,
+            # matching when this file was first written) -- the root
+            # cause of should_retrain()'s "was_trained already True"
+            # defect disclosed on the chain. Patched here, not per-test,
+            # so no test in this class can reintroduce the gap by omission.
+            mock.patch.object(mm, "MODEL_PATH", self.model_path),
         ]
         for p in self._patches:
             p.start()

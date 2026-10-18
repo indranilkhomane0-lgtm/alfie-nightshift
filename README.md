@@ -379,3 +379,18 @@ trusting a count written here.
     python3 run_nightshift.py             # full cycle, live Binance data
     python3 nightshift/label_outcomes.py  # grade anything that has settled
     python3 core/verify_chain.py          # check the chain
+    python3 tests/run_isolated.py         # run the test suite (see below)
+
+### Running the test suite
+
+Always `python3 tests/run_isolated.py`, never `python3 -m unittest discover`
+directly. Four separate times, a test wrote to a real production path
+instead of its own tmpdir (`nightshift/meta_model.pkl` and
+`nightshift/logs/watchdog.log`, both gitignored, so `git status` never
+showed it) because a `mock.patch` was missing. `run_isolated.py` chmod's
+`nightshift/`, `reports/`, and `core/` read-only for the run -- any write
+by any mechanism (`pathlib`, `open()`, `sqlite3.connect()`, `gzip.open()`)
+fails loudly inside the offending test instead of silently succeeding --
+and diffs a file-hash manifest before/after as a backstop. `self_audit.py`
+checks that this file still exists and that this README still points at
+it, not at raw `unittest discover`.

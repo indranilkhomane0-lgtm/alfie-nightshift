@@ -273,13 +273,23 @@ class FetchFailureIntegrationTest(unittest.TestCase):
         self.pred_path = root / "predictions.jsonl"
         self.archive_path = root / "ohlcv.csv.gz"
         self.archive_log = root / "archive_ohlcv.log"
+        self.model_path = root / "meta_model.pkl"
 
-        from nightshift import db as nsdb, cycle, stamp_prediction
+        from nightshift import db as nsdb, cycle, stamp_prediction, meta_model
         self._patches = [
             mock.patch.object(nsdb, "DB_PATH", self.db_path),
             mock.patch.object(stamp_prediction, "PRED_PATH", self.pred_path),
             mock.patch.object(archive_ohlcv, "ARCHIVE_PATH", self.archive_path),
             mock.patch.object(archive_ohlcv, "LOG_PATH", self.archive_log),
+            # This test builds a real NightShiftCycle(), whose __init__
+            # calls get_meta_model() -- currently a safe READ of the real
+            # nightshift/meta_model.pkl, since the forced exchange failure
+            # aborts the cycle at Stage 1, before train()/_save() is ever
+            # reached. Patched anyway so this stays safe if that abort
+            # point ever moves later -- same class of bug as
+            # tests/test_meta_model.py's unpatched MODEL_PATH, closed
+            # here before it becomes live rather than after.
+            mock.patch.object(meta_model, "MODEL_PATH", self.model_path),
         ]
         for p in self._patches:
             p.start()
