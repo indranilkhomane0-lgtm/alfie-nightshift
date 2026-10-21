@@ -234,6 +234,23 @@ never touches the real `corpus.db` or the real `MODEL_PATH` at all),
 not making the in-place write "safer" — the same lesson the test-suite
 fix already drew (patch the path, don't harden the write).
 
+### Known open issue — `run_nightshift.py` writes a real log file at import time
+
+Module-level `logging.basicConfig(...)` (near the top of
+run_nightshift.py) opens a real `logging.FileHandler` against
+`nightshift/logs/cycle_<today>.log` the instant the module is
+imported — not when a cycle actually runs. Found when
+`tests/test_run_nightshift.py` became the first test to import
+`run_nightshift.py` directly: `tests/run_isolated.py`'s lockdown
+caught the write immediately (`PermissionError`), since import-time is
+not something a per-test `mock.patch` can intercept before the fact.
+Worked around on the test side only (`logging.FileHandler` redirected
+for the duration of that one import) — `run_nightshift.py` itself is
+unchanged. Noted here, not fixed, alongside the two other known
+issues on this list: the broken `venv/bin/pip` shebang
+(`tests/run_isolated.py`'s docstring) and `--demo`'s corpus/model
+pollution above.
+
 ### Fixed defect — WFO metrics were not genuinely out-of-sample (2026-06-18 to 2026-08-04)
 
 From the system's initial commit, 607da1f (2026-06-18), through
