@@ -118,6 +118,38 @@ def cmd_demo(args):
         allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
     print("\n" + brief)
 
+def _innermost_named_exception(exc: Exception) -> Exception:
+    """Walks __cause__ (explicit 'raise X from Y') then __context__
+    (implicit -- raised while already handling another exception) down
+    to the deepest exception that still names something specific,
+    stopping just before descending into a bare stdlib/socket-level
+    error (socket.gaierror, ValueError, OSError, ...) that carries no
+    more diagnostic value than the library-level exception already
+    wrapping it. For example: urllib3.exceptions.NameResolutionError
+    already says "DNS resolution failed"; its own __cause__ is a plain
+    socket.gaierror, which says less, not more -- the walk stops at
+    NameResolutionError, not gaierror.
+
+    This exists because cycle.py's load_price_data() raises exactly one
+    RuntimeError on the nightly path, always with the same message
+    shape ("price fetch failed for {asset}..."), regardless of what
+    actually went wrong underneath it -- a DNS resolution failure
+    (urllib3.exceptions.NameResolutionError) and a mid-transfer
+    truncation (requests.exceptions.ChunkedEncodingError /
+    urllib3.exceptions.ProtocolError) both collapsed into the identical
+    (upstream_data, RuntimeError) pair on the chain, indistinguishable
+    after the fact (disclosed: four PIPELINE_FAILURE entries, 2026-10-15/
+    18/20/21, the first three genuinely DNS, the fourth a different
+    truncation entirely, all recorded the same way). Never raises;
+    worst case returns exc itself unchanged."""
+    current = exc
+    while True:
+        nxt = current.__cause__ or current.__context__
+        if nxt is None or type(nxt).__module__.split(".")[0] in ("builtins", "socket"):
+            return current
+        current = nxt
+
+
 def _classify_failure(exc: Exception) -> str:
     """Coarse, best-effort category for the chained record -- enough to
     separate an upstream data/exchange outage from a bug in our own
@@ -147,11 +179,21 @@ def _write_failure_sidecar(exc: Exception) -> None:
     see chain entry 285 for what a same-day-only check missed (a stale
     sidecar from an unrelated manual run got read as this run's own).
     Absent (manual invocation, no wrapper script) -> "unknown", same
-    fail-safe placeholder used elsewhere in this file."""
+    fail-safe placeholder used elsewhere in this file.
+
+    exception_type records _innermost_named_exception(exc)'s class,
+    not exc's own -- exc here is always cycle.py's RuntimeError wrapper
+    (see _classify_failure's docstring), identical in shape regardless
+    of what actually failed underneath it. failure_class still reads
+    exc directly, unchanged -- the wrapper is exactly what
+    _classify_failure's message-matching needs, and "upstream_data"
+    covers both a DNS failure and a truncated transfer correctly; the
+    distinction belongs in exception_type, not in a second
+    failure_class."""
     try:
         FAILURE_SIDECAR.parent.mkdir(parents=True, exist_ok=True)
         FAILURE_SIDECAR.write_text(json.dumps({
-            "exception_type": type(exc).__name__,
+            "exception_type": type(_innermost_named_exception(exc)).__name__,
             "failure_class": _classify_failure(exc),
             "written_at_utc": datetime.now(timezone.utc).isoformat(),
             "run_id": os.environ.get("ALFIE_RUN_ID", "unknown"),
