@@ -54,16 +54,23 @@ push_or_defer() {
 }
 
 # B1d -- SINGLE-INSTANCE LOCK.
-# launchd fires this at 05:30, 05:50 and 06:10 IST. The fallback guard below
-# only short-circuits once tonight's brief is ALREADY CHAINED -- so while a
-# cycle is still running, a later fire sails straight past it and starts a
-# second concurrent cycle writing to the same corpus.db and the same
-# chain.jsonl. Cycle duration is regime-dependent and volatile (17s on
-# 2026-08-02, 395s on 07-31 and 08-01), so 20-minute spacing is not a safe
-# margin -- and any future WFO change that slows the cycle makes a collision
-# routine rather than theoretical. macOS ships no flock(1); mkdir is atomic
-# on every POSIX filesystem, so use that. A lock whose owner is gone and
-# which is >2h old is treated as stale (crashed run) and reclaimed.
+# launchd fires this at 05:30, 05:50, 06:10, 07:00, and 08:00 local time.
+# The first three stayed close together (20min) for the original diagnosed
+# cause -- Wi-Fi not yet associated a few minutes after wake. The last two,
+# added 2026-10-23, exist for a different, now-repeatedly-observed failure
+# mode: a sustained DNS/network outage that outlasts the whole original
+# 40-minute window (disclosed: 2026-10-15/18/20/21/22, 5 of 8 nights) but,
+# per the watchdog's own later checks those same mornings, has reliably
+# cleared by 06:40-08:00. The fallback guard below only short-circuits once
+# tonight's brief is ALREADY CHAINED -- so while a cycle is still running, a
+# later fire sails straight past it and starts a second concurrent cycle
+# writing to the same corpus.db and the same chain.jsonl. Cycle duration is
+# regime-dependent and volatile (17s on 2026-08-02, 395s on 07-31 and
+# 08-01), so even 20-minute spacing is not a safe margin on its own -- and
+# any future WFO change that slows the cycle makes a collision routine
+# rather than theoretical. macOS ships no flock(1); mkdir is atomic on
+# every POSIX filesystem, so use that. A lock whose owner is gone and which
+# is >2h old is treated as stale (crashed run) and reclaimed.
 LOCKDIR="nightshift/.run.lock"
 if ! mkdir "$LOCKDIR" 2>/dev/null; then
   LOCKPID=$(cat "$LOCKDIR/pid" 2>/dev/null)
@@ -145,12 +152,16 @@ fi
 # nightshift/cycle.py's load_price_data() fails the exchange fetch on its
 # own and raises -- caught below as a normal cycle failure, now correctly
 # attributed (see run_nightshift.py's failure classification:
-# failure_class "upstream_data") instead of masked behind a generic
-# pre-emptive network guard. If Wi-Fi associates a few seconds into the
-# run, the cycle simply succeeds. Either way, this launchd fire actually
-# tries -- and if it doesn't work out, the 05:50 and 06:10 retries get a
-# real second and third attempt at producing a signal, not just a
-# push-retry on an already-declared failure.
+# failure_class "upstream_data", and _innermost_named_exception() for the
+# more specific exception_type underneath that -- NameResolutionError,
+# ProtocolError, IncompleteRead, etc., not just the wrapper) instead of
+# masked behind a generic pre-emptive network guard. If Wi-Fi associates a
+# few seconds into the run, the cycle simply succeeds. Either way, this
+# launchd fire actually tries -- and if it doesn't work out, the 05:50,
+# 06:10, 07:00, and 08:00 retries each get a real further attempt at
+# producing a signal, not just a push-retry on an already-declared
+# failure. The last two exist specifically for outages that outlast the
+# original three (see the B1d comment above for why).
 CYCLE_DATE="$(date -u +%Y%m%d)"
 
 # run the cycle
