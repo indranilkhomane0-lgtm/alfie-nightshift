@@ -357,5 +357,46 @@ class ReportGraduationTest(unittest.TestCase):
         self.assertTrue(self._marker_path.exists())
 
 
+class HoursSincePublishedTest(unittest.TestCase):
+    """_hours_since_published() -- the duration-based replacement for
+    the old published.date() != today calendar check, which broke the
+    instant this machine's local timezone changed (disclosed: IST ->
+    Asia/Bangkok, 2026-10-18). Pure function, no timezone/clock
+    dependency of its own -- these tests inject now_utc so they never
+    depend on when they happen to run."""
+
+    def test_ten_hours_ago(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
+        entry = {"published_at_utc": (now - timedelta(hours=10)).isoformat()}
+        self.assertAlmostEqual(watchdog._hours_since_published(entry, now), 10.0, places=6)
+
+    def test_exactly_at_threshold_is_not_missed(self):
+        """The main() check is `> MISSED_THRESHOLD_HOURS`, strictly
+        greater -- exactly at the threshold must not alert."""
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
+        entry = {"published_at_utc": (now - timedelta(hours=watchdog.MISSED_THRESHOLD_HOURS)).isoformat()}
+        hours = watchdog._hours_since_published(entry, now)
+        self.assertFalse(hours > watchdog.MISSED_THRESHOLD_HOURS)
+
+    def test_immune_to_timezone_of_the_published_timestamp(self):
+        """The same real instant, expressed in two different offsets,
+        must produce the same duration -- the entire point of being
+        UTC-anchored rather than comparing local calendar dates."""
+        from datetime import datetime, timedelta, timezone
+        now = datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
+        ist = timezone(timedelta(hours=5, minutes=30))
+        bangkok = timezone(timedelta(hours=7))
+        same_instant_ist = datetime(2026, 10, 26, 7, 30, tzinfo=ist)
+        same_instant_bangkok = datetime(2026, 10, 26, 9, 0, tzinfo=bangkok)
+        self.assertEqual(same_instant_ist.astimezone(timezone.utc),
+                          same_instant_bangkok.astimezone(timezone.utc))
+        entry_ist = {"published_at_utc": same_instant_ist.isoformat()}
+        entry_bkk = {"published_at_utc": same_instant_bangkok.isoformat()}
+        self.assertEqual(watchdog._hours_since_published(entry_ist, now),
+                          watchdog._hours_since_published(entry_bkk, now))
+
+
 if __name__ == "__main__":
     unittest.main()

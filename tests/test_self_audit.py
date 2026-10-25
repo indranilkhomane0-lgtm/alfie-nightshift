@@ -190,5 +190,69 @@ class DeadCodeSuppressionCategoriesTest(unittest.TestCase):
                               self_audit.DEAD_CODE_CATEGORY_DELIBERATELY_DEAD, name)
 
 
+class SystemTimezoneDriftTest(unittest.TestCase):
+    """check_system_timezone() -- flags a change in this machine's local
+    timezone since the last run, the detection this project's own
+    IST -> Asia/Bangkok move (disclosed 2026-10-18) didn't have, which
+    is why that move took days to even notice. Mocks
+    _current_system_timezone() rather than the real /etc/localtime --
+    this is a detector over a value, not a parser of that file."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.baseline_path = Path(self._tmp.name) / ".last_known_timezone"
+        self._patch = mock.patch.object(self_audit, "TIMEZONE_BASELINE_PATH", self.baseline_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_first_run_establishes_baseline_without_alerting(self):
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Bangkok"):
+            result = self_audit.check_system_timezone()
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(self.baseline_path.read_text(), "Asia/Bangkok")
+
+    def test_same_timezone_again_is_silent(self):
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Bangkok"):
+            self_audit.check_system_timezone()
+            result = self_audit.check_system_timezone()
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["detail"]["changed"], [])
+
+    def test_timezone_change_is_flagged(self):
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Kolkata"):
+            self_audit.check_system_timezone()
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Bangkok"):
+            result = self_audit.check_system_timezone()
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["detail"]["changed"],
+                          [{"from": "Asia/Kolkata", "to": "Asia/Bangkok"}])
+
+    def test_change_is_not_reflagged_once_rebaselined(self):
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Kolkata"):
+            self_audit.check_system_timezone()
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value="Asia/Bangkok"):
+            self_audit.check_system_timezone()
+            result = self_audit.check_system_timezone()
+        self.assertEqual(result["status"], "PASS")
+
+    def test_undeterminable_timezone_reports_note_not_a_false_change(self):
+        with mock.patch.object(self_audit, "_current_system_timezone", return_value=None):
+            result = self_audit.check_system_timezone()
+        self.assertEqual(result["status"], "PASS")
+        self.assertIn("note", result["detail"])
+        self.assertFalse(self.baseline_path.exists())
+
+    def test_real_etc_localtime_resolves_to_a_real_zoneinfo_name(self):
+        """Against the real machine, no mocking -- confirms
+        _current_system_timezone() actually parses a real
+        /etc/localtime on this box rather than returning None."""
+        current = self_audit._current_system_timezone()
+        self.assertIsNotNone(current)
+        self.assertIn("/", current)
+
+
 if __name__ == "__main__":
     unittest.main()

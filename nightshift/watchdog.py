@@ -14,6 +14,18 @@ cleanly-chained failure logged identically to a clean brief ("published
 ... pushed to origin") and fired no alert at all -- a reader had to
 already suspect something was wrong to notice.
 
+"Missed a night" check, as of 2026-10-26: was published.date() != today
+(both in IST) -- a calendar-date comparison. Dropped in favor of
+_hours_since_published() > MISSED_THRESHOLD_HOURS, because this
+machine's move from IST to Asia/Bangkok (disclosed 2026-10-18) showed
+exactly how a calendar-date comparison breaks the instant any clock in
+the chain disagrees about what "today" means -- including, separately,
+this watchdog's own launchd schedule firing hours later than configured
+for reasons never fully root-caused. Duration since the last entry's
+own published_at_utc doesn't care what timezone anything is in or when
+the watchdog itself happens to run; it only cares how much real time
+has elapsed.
+
 Alert delivery, as of 2026-09-19 (chain entry 256): the sole channel used
 to be a local macOS notification (osascript), fired with its result never
 checked. That outage's post-mortem found this Mac's notification-
@@ -102,6 +114,23 @@ IST = timezone(timedelta(hours=5, minutes=30))
 NTFY_TIMEOUT_S = 10
 GITHUB_API_TIMEOUT_S = 10
 CREDENTIAL_WARN_DAYS = 10
+# "Missed a night" used to mean published.date() != today, both compared
+# in IST -- a calendar-date comparison, which is exactly the kind of
+# thing a timezone change silently breaks: this machine moved from IST
+# to Asia/Bangkok (disclosed 2026-10-18) without any code here changing,
+# and separately, the watchdog's own launchd schedule has been
+# observed firing ~1.5h later than configured for reasons never fully
+# root-caused (same machine, same investigation). A calendar-date
+# check is only as reliable as every clock agreeing on what "today"
+# means at the exact moment it runs -- which is precisely what a
+# silent tz drift, or a late-firing scheduler, breaks first. Duration
+# since the last entry is immune to both: it doesn't care what
+# timezone anything is in, or exactly when the watchdog itself
+# happened to run, only how much real time has elapsed. 30h gives
+# the full 05:30-08:00 (local, whatever local is) retry window plus a
+# full day's slack for scheduling jitter, while still catching a
+# genuinely missed night within about a day.
+MISSED_THRESHOLD_HOURS = 30
 
 
 def log(line: str) -> None:
@@ -441,6 +470,17 @@ def unpushed_commits() -> bool:
         return False
 
 
+def _hours_since_published(entry: dict, now_utc: datetime | None = None) -> float:
+    """Hours elapsed since entry's published_at_utc. Pure (now_utc
+    injectable for tests) -- real time if not given. The only input is
+    an absolute UTC timestamp already on the entry; no timezone, no
+    system clock's notion of "today," nothing that a tz change or a
+    late-firing scheduler can perturb."""
+    published_utc = datetime.fromisoformat(entry["published_at_utc"])
+    now_utc = now_utc or datetime.now(timezone.utc)
+    return (now_utc - published_utc).total_seconds() / 3600
+
+
 def alert(message: str) -> None:
     delivered, detail = notify_offmachine("Night Shift MISSED", message)
     log(f"{'ntfy delivered' if delivered else 'ntfy FAILED'} — {detail}")
@@ -581,7 +621,7 @@ def main() -> int:
         audit_ok = _report_audit_regressions(chain_entries)
         _report_graduation(chain_entries)
 
-        today = datetime.now(IST).date()
+        today = datetime.now(IST).date()  # display only below -- see MISSED_THRESHOLD_HOURS
         entry = last_entry()
 
         if entry is None:
@@ -593,9 +633,11 @@ def main() -> int:
         published = datetime.fromisoformat(entry["published_at_utc"]).astimezone(IST)
         kind = entry.get("payload", {}).get("type", "UNKNOWN")
 
-        if published.date() != today:
+        hours_since_published = _hours_since_published(entry)
+        if hours_since_published > MISSED_THRESHOLD_HOURS:
             msg = (
-                f"No chain entry for {today}. Last entry was {kind}, "
+                f"No chain entry in {hours_since_published:.1f}h (threshold "
+                f"{MISSED_THRESHOLD_HOURS}h). Last entry was {kind}, "
                 f"published {published.strftime('%Y-%m-%d %H:%M IST')}."
             )
             log(f"ALERT — {msg}")

@@ -1025,6 +1025,75 @@ def check_test_isolation_guard() -> dict:
     return finding
 
 
+# ── Check 10: system timezone drift ─────────────────────────────────────
+
+# Gitignored, like the OTS confirmed-index -- a performance/detection
+# hint, never a source of truth. Rebuildable if lost: a missing baseline
+# just re-anchors silently on the next run rather than false-alarming,
+# the same standard that index is held to.
+TIMEZONE_BASELINE_PATH = NIGHTSHIFT_DIR / "logs" / ".last_known_timezone"
+
+
+def _current_system_timezone() -> str | None:
+    """This machine's real current local timezone, read from where it
+    actually lives (/etc/localtime's symlink target), not from a
+    shell's TZ env var or anything Python's own tzset() might have
+    cached at import time -- this is literally how the IST -> Asia/
+    Bangkok move (disclosed 2026-10-18) was confirmed by hand during
+    that investigation. None if undeterminable (not macOS, unreadable,
+    not a symlink) -- the caller must treat that as "can't tell," not
+    as "no timezone configured."
+    """
+    try:
+        target = Path("/etc/localtime").resolve()
+        parts = target.parts
+        if "zoneinfo" in parts:
+            idx = parts.index("zoneinfo")
+            return "/".join(parts[idx + 1:])
+        return str(target)
+    except Exception:
+        return None
+
+
+def check_system_timezone() -> dict:
+    """Flags a change in this machine's local timezone since the last
+    time this check ran. A silent tz drift is otherwise invisible until
+    something schedule- or local-time-dependent (launchd's
+    StartCalendarInterval, cycle.py's date.today()-based cycle_id/
+    deployment_date) starts behaving strangely -- which is exactly what
+    happened: the IST -> Asia/Bangkok move went unnoticed for days and
+    took a multi-day forensic investigation (watchdog firing hours
+    "late," relative to a schedule that had quietly stopped meaning what
+    it used to) before anyone connected it to the tz change at all. This
+    check exists so that connection is immediate and automatic the next
+    time, not something a reader has to rediscover by hand."""
+    finding = {
+        "name": "system_timezone", "status": "PASS",
+        "detail": {"changed": []},
+    }
+    current = _current_system_timezone()
+    if current is None:
+        finding["detail"]["note"] = (
+            "could not determine system timezone (not macOS, or "
+            "/etc/localtime unreadable)"
+        )
+        return finding
+    try:
+        if TIMEZONE_BASELINE_PATH.exists():
+            previous = TIMEZONE_BASELINE_PATH.read_text().strip()
+            if previous and previous != current:
+                finding["detail"]["changed"].append({"from": previous, "to": current})
+        TIMEZONE_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TIMEZONE_BASELINE_PATH.write_text(current)
+    except Exception as exc:
+        finding["detail"]["note"] = f"could not read/write timezone baseline: {exc}"
+        return finding
+
+    if finding["detail"]["changed"]:
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1047,6 +1116,7 @@ def main() -> int:
             _run_check(check_predictions_row_count_monotonic, entries),
             _run_check(check_doc_reference_integrity),
             _run_check(check_test_isolation_guard),
+            _run_check(check_system_timezone),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1123,7 +1193,7 @@ FINDING_KEYS = {
     "gated_but_unimplemented", "implemented_but_never_gated",
     "decreases",
     "missing_paths", "broken_verify_commands", "constant_mismatches",
-    "missing", "bypassed",
+    "missing", "bypassed", "changed",
 }
 
 
