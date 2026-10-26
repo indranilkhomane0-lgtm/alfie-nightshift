@@ -59,6 +59,14 @@ in, with the causal link:
                            the freeze exists to prevent. Cheaper to carry
                            one dormant file on the list now than to catch
                            that gap after it's already live.
+  brief_guard.py          -- added 2026-10-26. Imported by cycle.py;
+                           assert_not_chained() can abort run() before
+                           any side effect, so it decides whether a call
+                           is made at all -- call-determining in the
+                           sense the freeze covers. Unlike
+                           run_and_publish.sh's run lock, which sits
+                           outside the Python call path and is not
+                           importable by the cycle.
 
 Traced out (confirmed non-causal, not merely deprioritised):
   live_monitor.py, db.py -- stamp() runs on every mc_passed config
@@ -100,6 +108,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # "the strategy," so changing it is itself a methodology change that
 # belongs on the chain, not a routine edit.
 STRATEGY_VERSION_FILES = [
+    "nightshift/brief_guard.py",
     "nightshift/config.py",
     "nightshift/cycle.py",
     "nightshift/mc_gate.py",

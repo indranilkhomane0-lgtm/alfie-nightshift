@@ -19,8 +19,8 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Ten freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V8, and
+Eleven freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V9, and
 FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
@@ -86,8 +86,10 @@ was MC-gate order and every META line described another config. That
 produced FROZEN_STRATEGY_VERSION_V7. The eighth correction (2026-10-26)
 made a chained brief write-once (nightshift/brief_guard.py), producing
 FROZEN_STRATEGY_VERSION_V8. The ninth (2026-10-26) reverted the
-published order to GT-Score with the meta-model in shadow, producing the
-current value, FROZEN_STRATEGY_VERSION. All ten constants and all ten
+published order to GT-Score with the meta-model in shadow, producing
+FROZEN_STRATEGY_VERSION_V9. The tenth (2026-10-26) added
+nightshift/brief_guard.py to the hashed set, producing the current
+value, FROZEN_STRATEGY_VERSION. All eleven constants and all eleven
 filtered
 sections stay: each slice is real history that already happened under
 those terms and does not get erased by the next correction.
@@ -307,9 +309,17 @@ FROZEN_STRATEGY_VERSION_V8 = "9241cdefe8e464042aeaa800d10d8381250fd82e2ffacd6e4d
 # 0.552 across its two real fits, R2 about -2.4). The model still ranks
 # every night, in shadow: shown in a marked brief section and chained as
 # payload ranking.shadow_order. Ranking has never affected which configs
-# are stamped or graded. This is the value that actually governs the
-# freeze from this correction forward.
-FROZEN_STRATEGY_VERSION = "ba13e23bb5de8926d8622ba4157be8f138abf0d235f2c8c31fb7034168af3d42"
+# are stamped or graded. Governed the freeze until the tenth correction
+# below. Superseded -- kept, filter and all.
+FROZEN_STRATEGY_VERSION_V9 = "ba13e23bb5de8926d8622ba4157be8f138abf0d235f2c8c31fb7034168af3d42"
+
+# Tenth correction, declared 2026-10-26: nightshift/brief_guard.py added
+# to nightshift/strategy_version.py's STRATEGY_VERSION_FILES. It is
+# imported by cycle.py and can abort run() before any side effect, so it
+# decides whether a call is made at all. No code change to any file; the
+# hash moves because the hashed set grew. This is the value that actually
+# governs the freeze from this correction forward.
+FROZEN_STRATEGY_VERSION = "a0faa06f4feae265ca88ee215b8b2327136bbdeed70aeeece68fc2c3485af043"
 
 # data key of the METHODOLOGY_CHANGE that disclosed grading-time
 # misattribution and introduced stamped_strategy_version. Located by key,
@@ -533,6 +543,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv7_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V7)
     frozen_sv8_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V8)
     frozen_sv8_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V8)
+    frozen_sv9_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V9)
+    frozen_sv9_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V9)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -543,6 +555,7 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         FROZEN_STRATEGY_VERSION_V5, FROZEN_STRATEGY_VERSION_V6,
         FROZEN_STRATEGY_VERSION_V7,
         FROZEN_STRATEGY_VERSION_V8,
+        FROZEN_STRATEGY_VERSION_V9,
         FROZEN_STRATEGY_VERSION,
     ]
 
@@ -609,6 +622,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v8_return_stats": {
             "win": (*_mean_median(frozen_sv8_win), len(frozen_sv8_win)),
             "loss": (*_mean_median(frozen_sv8_loss), len(frozen_sv8_loss)),
+        },
+        "frozen_strategy_version_v9_return_stats": {
+            "win": (*_mean_median(frozen_sv9_win), len(frozen_sv9_win)),
+            "loss": (*_mean_median(frozen_sv9_loss), len(frozen_sv9_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -785,9 +802,15 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs8rs['win'])}")
     print(f"  losses: {_print_return_stats(fs8rs['loss'])}")
 
+    fs9rs = stats["frozen_strategy_version_v9_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V9[:12]} only "
+          f"-- ninth correction (published order reverted to GT-Score; meta-model ranks in shadow only), superseded; kept for history; {grading_note}):")
+    print(f"  wins:   {_print_return_stats(fs9rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs9rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- ninth correction (published order reverted to GT-Score; meta-model ranks in shadow only); current frozen strategy version; {grading_note}):")
+          f"-- tenth correction (nightshift/brief_guard.py added to the frozen surface; no code change); current frozen strategy version; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 
@@ -803,7 +826,8 @@ def main() -> int:
         (FROZEN_STRATEGY_VERSION_V6, "sixth correction"),
         (FROZEN_STRATEGY_VERSION_V7, "seventh correction"),
         (FROZEN_STRATEGY_VERSION_V8, "eighth correction"),
-        (FROZEN_STRATEGY_VERSION, "ninth correction, current"),
+        (FROZEN_STRATEGY_VERSION_V9, "ninth correction"),
+        (FROZEN_STRATEGY_VERSION, "tenth correction, current"),
     ]
     for sv, label in stamp_labels:
         st = stats["stamp_time_return_stats"][sv]
