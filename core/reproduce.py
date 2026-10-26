@@ -142,6 +142,7 @@ CORPUS_DELTA_PATH = ROOT / "reports" / "archive" / "corpus_delta.jsonl"
 # necessarily differ on every reproduction (prediction_id embeds the
 # wall-clock date string; context_fetched_at was never populated by the
 # real pipeline either, see nightshift/stamp_prediction.py).
+# Compared per config_id-matched pair (see diff_predictions()).
 DIFF_FIELDS = [
     "asset", "strategy_family", "direction", "entry_price",
     "context_hash", "context_n_bars", "context_start", "context_end",
@@ -678,7 +679,12 @@ def replay(archived: dict, delta_rows: list, cycle_id: int, target: _date,
             f"plain gt_score sort. Fully deterministic, no caveat needed.")
 
     gt_scores = [r.gt_score_oos for r in mc_passed]
-    ranked = meta.rank(cfg_dicts, regime.state, gt_scores)
+    # Published order is GT-Score (nightshift/meta_model.py
+    # rank_by_gt_score); the meta-model only ranks in shadow. Replayed
+    # predictions are matched to stamped ones by config_id below, so
+    # this order is not what the comparison depends on.
+    from nightshift.meta_model import rank_by_gt_score
+    ranked = rank_by_gt_score(cfg_dicts, gt_scores)
     mc_passed_ranked = [mc_passed[r.index] for r in ranked]
     cfg_dicts_ranked = [cfg_dicts[r.index] for r in ranked]
 
@@ -715,38 +721,44 @@ def replay(archived: dict, delta_rows: list, cycle_id: int, target: _date,
 # ── Phase 6: diff against predictions.jsonl ──────────────────────────────
 
 def diff_predictions(replayed: list, actual: list) -> dict:
-    actual_by_asset = {}
-    for p in actual:
-        actual_by_asset.setdefault(p["asset"], []).append(p)
-    replayed_by_asset = {}
-    for p in replayed:
-        replayed_by_asset.setdefault(p["asset"], []).append(p)
+    """Per asset, matches each replayed prediction to the stamped one with
+    the same config_id and compares DIFF_FIELDS. Stamp position plays no
+    part: the earlier first-per-asset comparison coupled this diff to stamp
+    order, the same positional defect as the rank()/cycle.py pairing bug,
+    and could compare two different configs. MATCH requires, for every
+    asset, the same set of config_ids on both sides and every field of
+    every matched pair equal."""
+    def by_asset(rows):
+        out = {}
+        for p in rows:
+            out.setdefault(p["asset"], {})[p.get("config_id")] = p
+        return out
+    act_all, rep_all = by_asset(actual), by_asset(replayed)
 
     report = {"per_asset": {}, "overall_verdict": None}
     all_match = True
-    any_actual = bool(actual)
-    for asset in sorted(set(actual_by_asset) | set(replayed_by_asset)):
-        act = actual_by_asset.get(asset, [])
-        rep = replayed_by_asset.get(asset, [])
-        act_hashes = {p["context_hash"] for p in act}
-        rep_hashes = {p["context_hash"] for p in rep}
+    for asset in sorted(set(act_all) | set(rep_all)):
+        act, rep = act_all.get(asset, {}), rep_all.get(asset, {})
+        act_hashes = {p["context_hash"] for p in act.values()}
+        rep_hashes = {p["context_hash"] for p in rep.values()}
         entry = {
             "actual_count": len(act), "replayed_count": len(rep),
             "context_hash_overlap": sorted(act_hashes & rep_hashes),
-            "fields": [],
+            "matched": [],
+            "only_actual": sorted(set(act) - set(rep), key=str),
+            "only_replayed": sorted(set(rep) - set(act), key=str),
         }
-        if not act or not rep:
-            entry["note"] = "no actual and/or no replayed prediction for this asset"
-            all_match = all_match and (not act and not rep)
-        else:
-            a0, r0 = act[0], rep[0]
+        for cid in sorted(set(act) & set(rep), key=str):
+            fields = []
             for f in DIFF_FIELDS:
-                av, rv = a0.get(f), r0.get(f)
-                m = (av == rv)
-                entry["fields"].append({"field": f, "actual": av, "replayed": rv, "match": m})
-                all_match = all_match and m
+                av, rv = act[cid].get(f), rep[cid].get(f)
+                fields.append({"field": f, "actual": av, "replayed": rv, "match": av == rv})
+                all_match = all_match and av == rv
+            entry["matched"].append({"config_id": cid, "fields": fields})
+        if entry["only_actual"] or entry["only_replayed"]:
+            all_match = False
         report["per_asset"][asset] = entry
-    report["overall_verdict"] = "MATCH" if (all_match and any_actual) else "MISMATCH"
+    report["overall_verdict"] = "MATCH" if (all_match and bool(actual)) else "MISMATCH"
     return report
 
 
@@ -854,13 +866,18 @@ def main() -> int:
         diff = diff_predictions(result["replayed_predictions"], predictions_today)
         for asset, entry in diff["per_asset"].items():
             print(f"\n  {asset}: actual={entry['actual_count']} "
-                  f"replayed={entry['replayed_count']}")
-            if entry.get("note"):
-                print(f"    {entry['note']}")
-            for f in entry["fields"]:
-                mark = "=" if f["match"] else "!="
-                print(f"    {f['field']:16s} actual={f['actual']!r:30} "
-                      f"{mark} replayed={f['replayed']!r}")
+                  f"replayed={entry['replayed_count']}  "
+                  f"matched by config_id={len(entry['matched'])}")
+            for cid in entry["only_actual"]:
+                print(f"    stamped, not replayed: {cid}")
+            for cid in entry["only_replayed"]:
+                print(f"    replayed, not stamped: {cid}")
+            for m in entry["matched"]:
+                print(f"    {m['config_id']}:")
+                for f in m["fields"]:
+                    mark = "=" if f["match"] else "!="
+                    print(f"      {f['field']:16s} actual={f['actual']!r:30} "
+                          f"{mark} replayed={f['replayed']!r}")
 
         print(f"\n=== VERDICT: {diff['overall_verdict']} "
               f"(context_hash integrity: {'OK' if hashes_ok else 'FAILED'}) ===")

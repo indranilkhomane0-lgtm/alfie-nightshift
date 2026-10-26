@@ -523,6 +523,11 @@ def main() -> int:
         completeness_path = Path(args.brief).with_suffix(".completeness.json")
         if completeness_path.exists():
             payload["data_completeness"] = json.loads(completeness_path.read_text())
+        # Published (GT-Score) and shadow (meta-model) orderings, written by
+        # cycle.py. Absent on briefs from before the shadow split.
+        ranking_path = Path(args.brief).with_suffix(".ranking.json")
+        if ranking_path.exists():
+            payload["ranking"] = json.loads(ranking_path.read_text())
     else:
         if not args.report:
             print("error: --report, --brief, --failed, --methodology, or "

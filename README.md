@@ -195,12 +195,15 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
    genuinely out-of-sample" below.
 5. Monte Carlo gating — 5 gates covering noise, slippage, parameter
    perturbation, and block resampling; a config must pass all five
-6. Meta-model ranking — ranks survivors with a trained survival model,
-   or by GT-Score while the model is untrained. It first trained on real
-   data on 2026-10-19 (chain entry 432) with a cross-validated AUC of
-   about 0.5, no better than chance. Until 2026-10-26 this stage didn't
-   order anything: see "Fixed defect — ranking never ordered the brief"
-   below.
+6. Ranking — the published order is GT-Score, highest first. The
+   trained meta-model ranks the same configs every night in shadow only.
+   Its ordering is shown in a marked shadow section of the brief and
+   chained as structured data, and it is never used for the published
+   order. It first trained on real data on 2026-10-19 (chain entry 432),
+   and across its two real fits it scored a cross-validated AUC of 0.505
+   and 0.552 (R² about −2.4): no demonstrated skill. Until 2026-10-26
+   ranking didn't order anything at all: see "Fixed defect — ranking
+   never ordered the brief" below.
 7. Live monitor + brief — intended to run decay checks and auto-suspend
    before the brief is written and chained. Neither has ever executed;
    the brief is still written and chained every night regardless.
@@ -379,8 +382,11 @@ its calls with what was stamped. It covers less than that sounds like:
   needs night N+1's archive to supply night N's live candle. No archived
   night N has an archived night N+1, so it is covered by the fixtures in
   tests/test_reproduce.py only.
-- **The comparison is per asset, on the first prediction stamped.** The
-  order of stamped predictions matters to it.
+- **The comparison matches predictions by config_id**, per asset. It
+  needs the same set of configs on both sides, with every compared field
+  equal. Until 2026-10-26 it compared only the first prediction stamped
+  per asset, so it depended on stamp order and could compare two
+  different configs.
 
 ## Honest limitations
 

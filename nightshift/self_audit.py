@@ -1199,7 +1199,7 @@ RANKING_MARKER_KEY = "ranking_pairing_fix"
 _BRIEF_CFG_RE = re.compile(r"^\s*\[(\d+)\]\s+(\S+)\s*$")
 _BRIEF_GT_RE = re.compile(r"^\s*GT=(-?[\d.]+)")
 _BRIEF_META_RE = re.compile(
-    r"^\s*META\s+(?P<body>.*?)(?:\s+scored=(?P<scored>\S+))?\s*$")
+    r"^\s*(?:META|RANK)\s+(?P<body>.*?)(?:\s+scored=(?P<scored>\S+))?\s*$")
 _META_SCORE_RE = re.compile(r"(?:GT-Score=|rank=)(-?[\d.]+)")
 
 
@@ -1213,7 +1213,8 @@ def brief_ranking_findings(text: str) -> dict:
     scored=<id>. Rounded printed values preserve order, so comparing
     them is exact enough for a non-increasing check."""
     blocks, cur = [], None
-    section = text.split("── TOP CONFIGURATIONS", 1)[-1].split("── LIVE HEALTH", 1)[0]
+    section = text.split("── TOP CONFIGURATIONS", 1)[-1].split("\n", 1)[-1]
+    section = re.split(r"^\s*──", section, maxsplit=1, flags=re.MULTILINE)[0]
     for line in section.splitlines():
         m = _BRIEF_CFG_RE.match(line)
         if m:
@@ -1231,7 +1232,9 @@ def brief_ranking_findings(text: str) -> dict:
             body = m.group("body")
             s = _META_SCORE_RE.search(body)
             cur["score"] = s.group(1) if s else None
-            cur["fallback"] = body.startswith("[FALLBACK]")
+            # GT-Score lines (pre-fix [FALLBACK], and every published RANK
+            # line since the shadow split) must carry that config's own GT.
+            cur["fallback"] = "GT-Score=" in body
             cur["scored"] = m.group("scored")
     out = {"identity": [], "order": [], "unlabelled": [], "n_configs": len(blocks)}
     for b in blocks:

@@ -63,6 +63,21 @@ class RankedConfig(NamedTuple):
     index: int
     score: MetaRankScore
 
+
+def rank_by_gt_score(configs, gt_scores, regime_n_samples=0) -> list[RankedConfig]:
+    """The published ranking: GT-Score, highest first, stable on ties
+    (MC-gate order). Deterministic and transparent -- the trained model
+    has no demonstrated skill (cv AUC 0.505 and 0.552 across its two real
+    fits), so it ranks in shadow only (see MetaModel.rank())."""
+    out = [RankedConfig(i, MetaRankScore(
+               config_id=cfg.get("config_id", "?"), rank_score=gt,
+               survival_prob=0.5, predicted_decay=0.5, uncertainty=1.0,
+               regime_n_samples=regime_n_samples, model_active=False,
+               fallback_score=gt))
+           for i, (cfg, gt) in enumerate(zip(configs, gt_scores))]
+    out.sort(key=lambda r: r.score.rank_score, reverse=True)
+    return out
+
 class MetaModel:
     def __init__(self):
         self._clf = None; self._reg = None
@@ -138,14 +153,11 @@ class MetaModel:
         sorted best-first (stable: ties keep input order). index points
         into `configs` -- see RankedConfig."""
         rn  = regime_corpus_size(regime_state)
+        if not self._trained:
+            return rank_by_gt_score(configs, gt_scores, rn)
         out = []
         for i, (cfg, gt) in enumerate(zip(configs, gt_scores)):
             cid = cfg.get("config_id","?")
-            if not self._trained:
-                out.append(RankedConfig(i, MetaRankScore(config_id=cid, rank_score=gt,
-                    survival_prob=0.5, predicted_decay=0.5, uncertainty=1.0,
-                    regime_n_samples=rn, model_active=False, fallback_score=gt)))
-                continue
             X = self._feat(cfg)
             try:
                 sp  = float(self._clf.predict_proba(X)[0,1])

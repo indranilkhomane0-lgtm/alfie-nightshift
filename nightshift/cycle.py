@@ -13,7 +13,7 @@ from nightshift.db import (init_db, log_cycle_start, log_cycle_end,
 from nightshift.regime_engine import RegimeEngine, compute_hmm_features
 from nightshift.wfo_engine import WFOEngine
 from nightshift.mc_gate import run_mc_gates
-from nightshift.meta_model import get_meta_model
+from nightshift.meta_model import get_meta_model, rank_by_gt_score
 from nightshift.brief_guard import assert_not_chained, write_brief
 from nightshift.live_monitor import LiveMonitor
 from nightshift.strategies import STRATEGY_REGISTRY
@@ -134,8 +134,53 @@ def _apply_ranking(ranked, mc_passed, cfg_dicts):
             [r.score for r in ranked])
 
 
+def _published_and_shadow(meta, cfg_dicts, regime_state, gt_scores):
+    """Published order is GT-Score (rank_by_gt_score). The trained
+    meta-model, when there is one, ranks the same configs in shadow:
+    recorded in the brief and the chained payload, never used for the
+    published order. Returns (published RankedConfigs, shadow records)
+    where shadow is a best-first list of (config_id, MetaRankScore), or
+    None while the model is untrained."""
+    published = rank_by_gt_score(cfg_dicts, gt_scores)
+    if not meta._trained:
+        return published, None
+    shadow = [(cfg_dicts[r.index]["config_id"], r.score)
+              for r in meta.rank(cfg_dicts, regime_state, gt_scores)]
+    return published, shadow
+
+
+def _model_info(meta) -> dict | None:
+    if not meta._trained:
+        return None
+    return {"n_train": meta._n_train, "cv_auc": meta._cv_clf, "cv_r2": meta._cv_reg}
+
+
+def _ranking_record(published_scores, shadow, model_info) -> dict:
+    """Both orderings, in full, for the chained NIGHTLY_BRIEF payload
+    (nightshift/publish_chain.py --brief), so they can be compared later
+    without re-running anything."""
+    return {
+        "published_order": {
+            "basis": "gt_score",
+            "configs": [{"config_id": ms.config_id, "gt_score": ms.rank_score}
+                        for ms in published_scores],
+        },
+        "shadow_order": None if shadow is None else {
+            "basis": "meta_model",
+            "used_for_published_order": False,
+            "model": model_info,
+            "configs": [{"config_id": cid, "rank_score": ms.rank_score,
+                         "survival_prob": ms.survival_prob,
+                         "predicted_decay": ms.predicted_decay,
+                         "uncertainty": ms.uncertainty,
+                         "model_active": ms.model_active}
+                        for cid, ms in shadow],
+        },
+    }
+
+
 def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
-           corpus_n, duration):
+           corpus_n, duration, shadow=None, model_info=None):
     now   = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         "="*68,
@@ -149,11 +194,23 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
         f"  Size mult: {regime.size_mult:.0%}  Vol target: {regime.vol_target:.0%} ann",
         f"  Eligible: {[k for k,v in regime.eligible_families.items() if v]}",
         "",
-        "── META-MODEL ──────────────────────────────────────────────────────",
-        f"  Corpus: {corpus_n} distinct labeled dates  "
-        f"{'ACTIVE' if corpus_n>=30 else 'STANDBY — need 30 dates'}",
+    ]
+    if model_info:
+        lines += [
+            "── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────",
+            f"  Shadow only, untrained-quality: n={model_info['n_train']}, "
+            f"cross-validated AUC={model_info['cv_auc']:.3f}, R²={model_info['cv_r2']:.3f}.",
+            "  No demonstrated skill. Its ranking is recorded below, not used.",
+            f"  Labeled corpus: {corpus_n} distinct dates",
+        ]
+    else:
+        lines += [
+            "── META-MODEL ──────────────────────────────────────────────────────",
+            f"  Untrained. Labeled corpus: {corpus_n} distinct dates.",
+        ]
+    lines += [
         "",
-        "── TOP CONFIGURATIONS ──────────────────────────────────────────────",
+        "── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────",
     ]
     if not top_configs:
         lines.append("  No configs passed all gates tonight.")
@@ -176,9 +233,20 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
             f" G3={mc.get('gate3_p10',0):.2f}"
             f" G4={mc.get('gate4_p10',0):.2f}"
             f" G5_sens={mc.get('gate5_sensitivity',0):.2f}",
-            f"      META {ms.explain()}  scored={ms.config_id}",
+            f"      RANK GT-Score={ms.rank_score:.3f}  (published order)  scored={ms.config_id}",
             f"      Params: {json.dumps(cfg.params)}",
         ]
+    if shadow:
+        published_pos = {cfg.config_id: i for i, cfg in enumerate(top_configs, 1)}
+        lines += ["",
+            "── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────"]
+        for k, (cid, ms) in enumerate(shadow[:3], 1):
+            pos = published_pos.get(cid)
+            lines.append(f"  shadow #{k}  {cid}  "
+                         f"(published {'#' + str(pos) if pos else 'below top 3'})")
+            lines.append(f"      {ms.explain()}")
+        same = bool(top_configs) and shadow[0][0] == top_configs[0].config_id
+        lines.append(f"  Shadow #1 is published #1: {'yes' if same else 'no'}")
     lines += ["",
         "── LIVE HEALTH ─────────────────────────────────────────────────────",
     ]
@@ -316,8 +384,10 @@ class NightShiftCycle:
                 "btc_dominance_delta":ds.get("btc_dominance_delta",0),
             })
         gt_scores   = [r.gt_score_oos for r in mc_passed]
-        mc_passed, cfg_dicts, meta_scores = _apply_ranking(
-            self.meta.rank(cfg_dicts, regime.state, gt_scores), mc_passed, cfg_dicts)
+        published, shadow = _published_and_shadow(
+            self.meta, cfg_dicts, regime.state, gt_scores)
+        mc_passed, cfg_dicts, meta_scores = _apply_ranking(published, mc_passed, cfg_dicts)
+        model_info = _model_info(self.meta)
         for cfg in cfg_dicts: insert_config_entry(self.cycle_id, cfg)
         top3  = mc_passed[:3]
         top3m = meta_scores[:3]
@@ -333,7 +403,8 @@ class NightShiftCycle:
                 self.monitor.deregister(ms.config_id)
         duration   = time.time() - t0
         brief_text = _brief(self.cycle_id, regime, top3, monitor_statuses,
-                            top3m, labeled_prediction_date_count(), duration)
+                            top3m, labeled_prediction_date_count(), duration,
+                            shadow=shadow, model_info=model_info)
         brief_path = str(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
         write_brief(brief_path, brief_text)
 
@@ -343,6 +414,11 @@ class NightShiftCycle:
         completeness_path = Path(brief_path).with_suffix(".completeness.json")
         completeness_path.write_text(json.dumps(
             {"price": price_status, "derivatives": signal_status},
+            sort_keys=True, indent=2,
+        ), encoding="utf-8")
+        # Sidecar for publish_chain.py: published and shadow orderings.
+        Path(brief_path).with_suffix(".ranking.json").write_text(json.dumps(
+            _ranking_record(meta_scores, shadow, model_info),
             sort_keys=True, indent=2,
         ), encoding="utf-8")
 
