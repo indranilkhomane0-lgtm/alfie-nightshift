@@ -14,6 +14,7 @@ from nightshift.regime_engine import RegimeEngine, compute_hmm_features
 from nightshift.wfo_engine import WFOEngine
 from nightshift.mc_gate import run_mc_gates
 from nightshift.meta_model import get_meta_model
+from nightshift.brief_guard import assert_not_chained, write_brief
 from nightshift.live_monitor import LiveMonitor
 from nightshift.strategies import STRATEGY_REGISTRY
 from nightshift.derivatives import get_all_signals_with_status
@@ -212,6 +213,9 @@ class NightShiftCycle:
 
     def run(self):
         t0 = time.time()
+        # Before any side effect: a cycle whose brief is already chained
+        # must not run at all (nightshift/brief_guard.py).
+        assert_not_chained(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
         init_db()
         log_cycle_start(self.cycle_id, str(date.today()))
         log.info("▶ Night shift cycle %d", self.cycle_id)
@@ -331,7 +335,7 @@ class NightShiftCycle:
         brief_text = _brief(self.cycle_id, regime, top3, monitor_statuses,
                             top3m, labeled_prediction_date_count(), duration)
         brief_path = str(BRIEF_DIR / f"brief_{self.cycle_id}.txt")
-        Path(brief_path).write_text(brief_text, encoding="utf-8")
+        write_brief(brief_path, brief_text)
 
         # Sidecar for publish_chain.py: which data sources were real tonight
         # vs. fell back to a default, so a degraded night is visible in the

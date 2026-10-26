@@ -56,6 +56,19 @@ The chain currently holds four entry types:
   manually via `publish_chain.py --methodology "..."` at the moment the
   change is made
 
+### One brief file was overwritten after it was chained
+
+nightshift/briefs/brief_20260926.txt is not the file that was published.
+Chain entry 276's brief_sha256 commits to the original, which a second,
+manual same-day cycle overwrote. It is recoverable from git:
+
+    git show 034f235:nightshift/briefs/brief_20260926.txt | shasum -a 256
+
+That prints entry 276's brief_sha256. The file is not restored: the
+correction goes forward. It is the only chained brief whose file differs
+from its recorded hash. A chained brief can no longer be rewritten
+(nightshift/brief_guard.py).
+
 ### Which strategy version made a call
 
 core/verify_chain.py prints per-strategy-version results two ways. The

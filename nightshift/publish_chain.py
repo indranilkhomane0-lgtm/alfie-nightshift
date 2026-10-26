@@ -533,6 +533,11 @@ def main() -> int:
 
     entry = append_entry(payload)
     print(f"chained: {entry['entry_hash'][:16]}…  (prev {entry['prev_hash'][:16]}…)")
+    if args.brief:
+        # Now chained: the file is final. Read-only so no other writer can
+        # replace it (nightshift/brief_guard.py).
+        from nightshift.brief_guard import mark_read_only
+        mark_read_only(args.brief)
     return 0
 
 
