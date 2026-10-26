@@ -4,7 +4,16 @@ Alfie Night Shift — chain verifier.
 
 Anyone can run this against reports/chain.jsonl with zero dependencies:
 
-    python3 verify_chain.py
+    python3 verify_chain.py                  # one screen: validity, record, receipts
+    python3 verify_chain.py --all-slices     # every per-version slice as a full block
+    python3 verify_chain.py --code-versions  # every code_version and its first entry
+    python3 verify_chain.py --full           # both
+
+The default output prints every number the record carries, but names
+per-version slices with zero graded calls on one line per section
+instead of printing an empty block for each, and prints the count of
+code versions rather than the list. Nothing is dropped: the flags above
+restore the full blocks and the full list.
 
 It recomputes every hash from genesis. If any historical entry was edited,
 deleted, or reordered, verification fails at that exact line.
@@ -92,7 +101,8 @@ nightshift/brief_guard.py to the hashed set, producing
 FROZEN_STRATEGY_VERSION_V10. The eleventh (2026-10-26) archived every
 asset's OHLCV every night, producing the current value,
 FROZEN_STRATEGY_VERSION. All twelve constants and all twelve filtered
-sections stay: each slice is real history that already happened under
+sections stay (GRADING_SLICES below; empty ones collapse to one line
+unless --all-slices): each slice is real history that already happened under
 those terms and does not get erased by the next correction.
 
 ATTRIBUTION -- READ THIS BEFORE TRUSTING ANY PER-VERSION NUMBER. The
@@ -729,7 +739,119 @@ def _print_return_stats(stats):
     return f"n={n}  avg {_fmt_pct(avg)}  median {_fmt_pct(median)}"
 
 
-def main() -> int:
+def _expectancy(rs):
+    """Mean return per graded call, wins and losses together -- the
+    n-weighted mean of the two averages. None when nothing is graded."""
+    (wa, _, wn), (la, _, ln) = rs["win"], rs["loss"]
+    if not wn + ln:
+        return None
+    return ((wa or 0.0) * wn + (la or 0.0) * ln) / (wn + ln)
+
+
+def _has_calls(rs):
+    return bool(rs["win"][2] or rs["loss"][2])
+
+
+# Grading-time slices, oldest first: (kind, frozen value, compute_stats key,
+# description). Printed in this order; data, not one hand-written block per
+# generation, so a new generation is one row here.
+GRADING_SLICES = [
+    ("code_version", FROZEN_CODE_VERSION, "frozen_code_version_return_stats",
+     "original freeze, superseded twice; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V1, "frozen_strategy_version_v1_return_stats",
+     "first repoint (excluded meta_model.py), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V2, "frozen_strategy_version_v2_return_stats",
+     "second repoint (meta_model.py added as a conservative buffer), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V3, "frozen_strategy_version_v3_return_stats",
+     "third correction (cycle.py brief-display fix, corpus_size() -> "
+     "labeled_prediction_date_count()), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V4, "frozen_strategy_version_v4_return_stats",
+     "fourth correction (raw-OHLCV archiving added to stamp_prediction.py, "
+     "archiving-only, no change to signal logic), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V5, "frozen_strategy_version_v5_return_stats",
+     "fifth correction (meta-model graduation gate repointed off the "
+     "permanently-zero labeled_date_count()/corpus_size() pair; gating fix, "
+     "no change to how a call is made), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V6, "frozen_strategy_version_v6_return_stats",
+     "sixth correction (strategy_version recorded on every stamped row; "
+     "attribution fix, no change to how a call is made), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V7, "frozen_strategy_version_v7_return_stats",
+     "seventh correction (ranking pairing fix: published order is meta-model/GT "
+     "rank order, not MC-gate order), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V8, "frozen_strategy_version_v8_return_stats",
+     "eighth correction (write-once guard on chained briefs; no change to how "
+     "a call is made), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V9, "frozen_strategy_version_v9_return_stats",
+     "ninth correction (published order reverted to GT-Score; meta-model ranks "
+     "in shadow only), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V10, "frozen_strategy_version_v10_return_stats",
+     "tenth correction (nightshift/brief_guard.py added to the frozen surface; "
+     "no code change), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION, "frozen_strategy_version_return_stats",
+     "eleventh correction (every asset's OHLCV archived every night; no change "
+     "to how a call is made); current frozen strategy version"),
+]
+
+# Stamp-time slices: (frozen value, short label). code_version has none --
+# stamped_strategy_version postdates it.
+STAMP_SLICES = [
+    (FROZEN_STRATEGY_VERSION_V1, "first repoint"),
+    (FROZEN_STRATEGY_VERSION_V2, "second repoint"),
+    (FROZEN_STRATEGY_VERSION_V3, "third correction"),
+    (FROZEN_STRATEGY_VERSION_V4, "fourth correction"),
+    (FROZEN_STRATEGY_VERSION_V5, "fifth correction"),
+    (FROZEN_STRATEGY_VERSION_V6, "sixth correction"),
+    (FROZEN_STRATEGY_VERSION_V7, "seventh correction"),
+    (FROZEN_STRATEGY_VERSION_V8, "eighth correction"),
+    (FROZEN_STRATEGY_VERSION_V9, "ninth correction"),
+    (FROZEN_STRATEGY_VERSION_V10, "tenth correction"),
+    (FROZEN_STRATEGY_VERSION, "eleventh correction, current"),
+]
+
+FLAGS_HELP = (
+    "  --all-slices     every per-version slice as a full wins/losses block, "
+    "empty ones included, each with its full label\n"
+    "  --code-versions  the full code-version list, with the entry each first appears at\n"
+    "  --full           both of the above\n"
+    "nothing is omitted by default: an empty slice is listed by name with "
+    "0 graded calls, and the code-version count is printed")
+
+
+def _parse_args(argv):
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="verify_chain.py",
+        description="Recompute the Night Shift hash chain from genesis and "
+                    "summarise what it records. Stdlib only.",
+        epilog="The default output shows every number; empty per-version "
+               "slices are named on one line rather than printed as blocks.")
+    p.add_argument("--all-slices", action="store_true",
+                   help="print every per-version slice (grading-time and "
+                        "stamp-time) as a full block, empty ones included")
+    p.add_argument("--code-versions", action="store_true",
+                   help="list every code_version on the chain with the entry "
+                        "it first appears at (only the count is printed by default)")
+    p.add_argument("--full", action="store_true",
+                   help="same as --all-slices --code-versions")
+    a = p.parse_args(argv)
+    if a.full:
+        a.all_slices = a.code_versions = True
+    return a
+
+
+def _print_block(head, rs, indent="  "):
+    print(f"{indent}{head}:")
+    print(f"{indent}  wins:   {_print_return_stats(rs['win'])}")
+    print(f"{indent}  losses: {_print_return_stats(rs['loss'])}")
+
+
+def _print_empties(names, indent="  "):
+    if names:
+        print(f"{indent}0 graded calls ({len(names)}): {', '.join(names)}")
+
+
+def main(argv=None) -> int:
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
     if not CHAIN_PATH.exists():
         print("no chain file found at", CHAIN_PATH)
         return 1
@@ -740,12 +862,19 @@ def main() -> int:
         print(str(exc))
         return 1
 
+    # ── headline: validity, the record, receipts ────────────────────────
     print(f"CHAIN VALID — {stats['entry_count']} entries, unbroken from genesis.")
+    rs = stats["return_stats"]
+    n_graded = stats["distinct_wins"] + stats["distinct_losses"]
     print(
         f"outcomes on record: {stats['distinct_wins']} wins / {stats['distinct_losses']} losses "
-        f"({stats['distinct_wins'] + stats['distinct_losses']} distinct calls) / "
+        f"({n_graded} distinct calls) / "
         f"{stats['waits']} waits / {stats['failures']} pipeline failures"
     )
+    print(f"  expectancy: {_fmt_pct(_expectancy(rs))} per graded call "
+          f"(mean return across wins and losses, all versions)")
+    print(f"  wins:   {_print_return_stats(rs['win'])}")
+    print(f"  losses: {_print_return_stats(rs['loss'])}")
     print(
         f"  {stats['wins']} win / {stats['losses']} loss chain entries (configs-in-agreement, "
         f"same asset+direction+night counted once above)"
@@ -789,153 +918,18 @@ def main() -> int:
             "nightshift/anchor_ots.py's next sweep clears it"
         )
     print(
-        "  structural check only: confirms a well-formed OTS proof file exists "
-        "and, for 'confirmed', that it embeds a Bitcoin-attestation structure -- "
-        "not that attestation's block header and merkle path actually check out "
-        "against the real blockchain. Run `ots verify <file>` against a Bitcoin "
-        "node yourself for that deeper check"
+        "  structural check only: a well-formed proof file exists and, if "
+        "confirmed, embeds a Bitcoin-attestation structure -- its block header "
+        "and merkle path are not checked against the real blockchain; run "
+        "`ots verify <file>` against a Bitcoin node for that"
     )
 
-    rs = stats["return_stats"]
-    print("return per graded call (all code versions):")
-    print(f"  wins:   {_print_return_stats(rs['win'])}")
-    print(f"  losses: {_print_return_stats(rs['loss'])}")
-
-    print(
-        f"labeled dates: {stats['labeled_dates_count']} of {LABELED_DATES_TARGET} "
-        f"distinct labeled dates"
-    )
-
-    marker = stats["attribution_marker_entry"]
-    see = (f"see entry {marker}" if marker else
-           "see the stamp-time attribution METHODOLOGY_CHANGE, not yet on this chain")
-    grading_note = f"GRADING-TIME attribution -- known misattributed, {see}"
-
-    fcrs = stats["frozen_code_version_return_stats"]
-    print(f"return per graded call (code_version {FROZEN_CODE_VERSION[:12]} only "
-          f"-- original freeze, superseded twice; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fcrs['win'])}")
-    print(f"  losses: {_print_return_stats(fcrs['loss'])}")
-
-    fs1rs = stats["frozen_strategy_version_v1_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V1[:12]} only "
-          f"-- first repoint (excluded meta_model.py), superseded; kept for history; "
-          f"{grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs1rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs1rs['loss'])}")
-
-    fs2rs = stats["frozen_strategy_version_v2_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V2[:12]} only "
-          f"-- second repoint (meta_model.py added as a conservative buffer), "
-          f"superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs2rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs2rs['loss'])}")
-
-    fs3rs = stats["frozen_strategy_version_v3_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V3[:12]} only "
-          f"-- third correction (cycle.py brief-display fix, corpus_size() -> "
-          f"labeled_prediction_date_count()), superseded; kept for history; "
-          f"{grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs3rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs3rs['loss'])}")
-
-    fs4rs = stats["frozen_strategy_version_v4_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V4[:12]} only "
-          f"-- fourth correction (raw-OHLCV archiving added to "
-          f"stamp_prediction.py, archiving-only, no change to signal logic), "
-          f"superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs4rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs4rs['loss'])}")
-
-    fs5rs = stats["frozen_strategy_version_v5_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V5[:12]} only "
-          f"-- fifth correction (meta-model graduation gate repointed off "
-          f"the permanently-zero labeled_date_count()/corpus_size() pair; "
-          f"gating fix, no change to how a call is made), superseded; kept "
-          f"for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs5rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs5rs['loss'])}")
-
-    fs6rs = stats["frozen_strategy_version_v6_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V6[:12]} only "
-          f"-- sixth correction (strategy_version recorded on every stamped "
-          f"row; attribution fix, no change to how a call is made), "
-          f"superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs6rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs6rs['loss'])}")
-
-    fs7rs = stats["frozen_strategy_version_v7_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V7[:12]} only "
-          f"-- seventh correction (ranking pairing fix: published order is meta-model/GT rank order, not MC-gate order), superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs7rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs7rs['loss'])}")
-
-    fs8rs = stats["frozen_strategy_version_v8_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V8[:12]} only "
-          f"-- eighth correction (write-once guard on chained briefs; no change to how a call is made), superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs8rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs8rs['loss'])}")
-
-    fs9rs = stats["frozen_strategy_version_v9_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V9[:12]} only "
-          f"-- ninth correction (published order reverted to GT-Score; meta-model ranks in shadow only), superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs9rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs9rs['loss'])}")
-
-    fs10rs = stats["frozen_strategy_version_v10_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V10[:12]} only "
-          f"-- tenth correction (nightshift/brief_guard.py added to the frozen surface; no code change), superseded; kept for history; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fs10rs['win'])}")
-    print(f"  losses: {_print_return_stats(fs10rs['loss'])}")
-
-    fsrs = stats["frozen_strategy_version_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- eleventh correction (every asset's OHLCV archived every night; no change to how a call is made); current frozen strategy version; {grading_note}):")
-    print(f"  wins:   {_print_return_stats(fsrs['win'])}")
-    print(f"  losses: {_print_return_stats(fsrs['loss'])}")
-
-    print("return per graded call by STAMP-TIME strategy_version "
-          "(stamped_strategy_version -- the version that MADE the call; "
-          "this is the correct attribution):")
-    stamp_labels = [
-        (FROZEN_STRATEGY_VERSION_V1, "first repoint"),
-        (FROZEN_STRATEGY_VERSION_V2, "second repoint"),
-        (FROZEN_STRATEGY_VERSION_V3, "third correction"),
-        (FROZEN_STRATEGY_VERSION_V4, "fourth correction"),
-        (FROZEN_STRATEGY_VERSION_V5, "fifth correction"),
-        (FROZEN_STRATEGY_VERSION_V6, "sixth correction"),
-        (FROZEN_STRATEGY_VERSION_V7, "seventh correction"),
-        (FROZEN_STRATEGY_VERSION_V8, "eighth correction"),
-        (FROZEN_STRATEGY_VERSION_V9, "ninth correction"),
-        (FROZEN_STRATEGY_VERSION_V10, "tenth correction"),
-        (FROZEN_STRATEGY_VERSION, "eleventh correction, current"),
-    ]
-    for sv, label in stamp_labels:
-        st = stats["stamp_time_return_stats"][sv]
-        print(f"  {sv[:12]} ({label}):")
-        print(f"    wins:   {_print_return_stats(st['win'])}")
-        print(f"    losses: {_print_return_stats(st['loss'])}")
-    first = stats["first_stamped_cycle_date"]
-    if first:
-        bucket = f"unattributable (stamped before {first}, the first graded cycle carrying stamped_strategy_version)"
-    else:
-        bucket = ("unattributable (no graded call on this chain carries "
-                  "stamped_strategy_version yet -- every graded call so far "
-                  "was stamped before the field existed)")
-    ua = stats["unattributable_return_stats"]
-    print(f"  {bucket}:")
-    print(f"    wins:   {_print_return_stats(ua['win'])}")
-    print(f"    losses: {_print_return_stats(ua['loss'])}")
-    ut = stats["untracked_stamped_return_stats"]
-    if ut["win"][2] or ut["loss"][2]:
-        print("  stamped under a strategy_version not tracked as a freeze above:")
-        print(f"    wins:   {_print_return_stats(ut['win'])}")
-        print(f"    losses: {_print_return_stats(ut['loss'])}")
-    if stats["stamp_version_conflicts"]:
-        print(f"  CONFLICT: {stats['stamp_version_conflicts']} case(s) where entries "
-              f"for the same asset+direction+night carry different "
-              f"stamped_strategy_version -- stamp-time slices above are not "
-              f"reliable until this is investigated")
+    # ── state of the record ─────────────────────────────────────────────
+    n_dates = stats["labeled_dates_count"]
+    met = ("met" if n_dates >= LABELED_DATES_TARGET else
+           f"{LABELED_DATES_TARGET - n_dates} to go")
+    print(f"labeled dates: {n_dates} distinct (meta-model graduation threshold "
+          f"{LABELED_DATES_TARGET} -- {met})")
 
     csv_ = stats["current_strategy_version"]
     if csv_:
@@ -956,11 +950,62 @@ def main() -> int:
           + (f" -- {', '.join(testable)}" if testable else
              " -- untested on real data until this is at least 1"))
 
-    print(f"code versions on record: {len(stats['code_versions'])}")
-    for cv, idx in sorted(stats["code_versions"].items(), key=lambda kv: kv[1]):
-        is_sha = cv not in ("unknown", "(predates code_version)")
-        label = cv[:12] if is_sha else cv
-        print(f"  {label:23s} first appears at entry {idx}")
+    # ── stamp-time attribution (correct) ────────────────────────────────
+    print("by STAMP-TIME strategy_version (stamped_strategy_version -- the "
+          "version that MADE the call; this is the correct attribution):")
+    first = stats["first_stamped_cycle_date"]
+    ua = stats["unattributable_return_stats"]
+    n_ua = ua["win"][2] + ua["loss"][2]
+    if first:
+        why = f"stamped before {first}, the first graded cycle carrying stamped_strategy_version"
+    else:
+        why = ("no graded call on this chain carries stamped_strategy_version "
+               "yet -- every graded call so far was stamped before the field existed")
+    _print_block(f"UNATTRIBUTABLE -- {n_ua} of {n_graded} graded calls ({why})", ua)
+    empties = []
+    for sv, label in STAMP_SLICES:
+        st = stats["stamp_time_return_stats"][sv]
+        if args.all_slices or _has_calls(st):
+            _print_block(f"{sv[:12]} ({label})", st)
+        else:
+            empties.append(sv[:12])
+    _print_empties(empties)
+    ut = stats["untracked_stamped_return_stats"]
+    if _has_calls(ut):
+        _print_block("stamped under a strategy_version not tracked as a freeze above", ut)
+    if stats["stamp_version_conflicts"]:
+        print(f"  CONFLICT: {stats['stamp_version_conflicts']} case(s) where entries "
+              f"for the same asset+direction+night carry different "
+              f"stamped_strategy_version -- stamp-time slices above are not "
+              f"reliable until this is investigated")
+
+    # ── grading-time attribution (known misattributed) ──────────────────
+    marker = stats["attribution_marker_entry"]
+    see = (f"see entry {marker}" if marker else
+           "see the stamp-time attribution METHODOLOGY_CHANGE, not yet on this chain")
+    print(f"by GRADING-TIME version (the version in force when the call was "
+          f"graded -- known misattributed, {see}; kept so the defect stays visible):")
+    empties = []
+    for kind, value, key, desc in GRADING_SLICES:
+        gs = stats[key]
+        if args.all_slices or _has_calls(gs):
+            _print_block(f"{kind} {value[:12]} -- {desc}; GRADING-TIME, known misattributed", gs)
+        else:
+            empties.append(value[:12])
+    _print_empties(empties)
+
+    # ── code versions ───────────────────────────────────────────────────
+    print(f"code versions on record: {len(stats['code_versions'])}"
+          + ("" if args.code_versions else " (list them with --code-versions)"))
+    if args.code_versions:
+        for cv, idx in sorted(stats["code_versions"].items(), key=lambda kv: kv[1]):
+            is_sha = cv not in ("unknown", "(predates code_version)")
+            label = cv[:12] if is_sha else cv
+            print(f"  {label:23s} first appears at entry {idx}")
+
+    if not (args.all_slices and args.code_versions):
+        print("more detail:")
+        print(FLAGS_HELP)
     return 0
 
 

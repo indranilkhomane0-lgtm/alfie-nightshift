@@ -593,5 +593,78 @@ class BreakoutTestableNightsTest(unittest.TestCase):
         self.assertNotIn("2026-10-07", breakout_testable_nights(real))
 
 
+class DefaultOutputTest(unittest.TestCase):
+    """main()'s printed layout: the default fits a screen, empty slices
+    collapse to one named line, and --all-slices / --code-versions bring
+    back everything the old layout printed."""
+
+    def _run(self, payloads, *argv):
+        import contextlib
+        import io
+        import verify_chain
+        path = _write_chain(payloads)
+        self.addCleanup(os.unlink, path)
+        buf = io.StringIO()
+        orig = verify_chain.CHAIN_PATH
+        verify_chain.CHAIN_PATH = path
+        try:
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(verify_chain.main(list(argv)), 0)
+        finally:
+            verify_chain.CHAIN_PATH = orig
+        return buf.getvalue()
+
+    def _record(self):
+        # one win and one loss graded under FROZEN_STRATEGY_VERSION_V5, no
+        # stamp-time field -- so one grading slice has calls, the rest none
+        return [
+            _outcome("BTC/USDT", "long", "2026-01-01", "2026-01-08", "WIN", 4.0,
+                     strategy_version=FROZEN_STRATEGY_VERSION_V5),
+            _outcome("ETH/USDT", "long", "2026-01-02", "2026-01-09", "LOSS", -2.0,
+                     strategy_version=FROZEN_STRATEGY_VERSION_V5),
+        ]
+
+    def test_headline_leads_with_validity_record_and_expectancy(self):
+        lines = self._run(self._record()).splitlines()
+        self.assertTrue(lines[0].startswith("CHAIN VALID"))
+        self.assertIn("1 wins / 1 losses", lines[1])
+        self.assertIn("expectancy: +1.00% per graded call", lines[2])
+
+    def test_empty_slices_collapse_to_one_line_each_section(self):
+        out = self._run(self._record())
+        self.assertIn("0 graded calls (11):", out)   # stamp-time: all empty
+        self.assertIn("0 graded calls (11): " + FROZEN_CODE_VERSION[:12], out)
+        self.assertNotIn("n=0  avg n/a  median n/a\n    losses: n=0", out)
+        # the slice holding calls keeps its block and its label
+        self.assertIn(f"strategy_version {FROZEN_STRATEGY_VERSION_V5[:12]} -- fifth", out)
+        self.assertIn("GRADING-TIME, known misattributed", out)
+        self.assertIn("UNATTRIBUTABLE -- 2 of 2 graded calls", out)
+
+    def test_code_versions_behind_flag_count_by_default(self):
+        out = self._run(self._record())
+        self.assertIn("code versions on record: 1 (list them with --code-versions)", out)
+        self.assertNotIn("first appears at entry 1", out)
+        self.assertIn("--all-slices", out)
+        listed = self._run(self._record(), "--code-versions")
+        self.assertIn("first appears at entry 1", listed)
+
+    def test_all_slices_prints_every_block(self):
+        out = self._run(self._record(), "--all-slices")
+        # headline 1 + unattributable 1 + 11 stamp + 12 grading
+        self.assertEqual(out.count("  wins:   n="), 25)
+        self.assertNotIn("0 graded calls (", out)
+
+    def test_labeled_dates_never_prints_n_of_smaller_target(self):
+        out = self._run(self._record())
+        self.assertIn("labeled dates: 2 distinct (meta-model graduation threshold 30 -- 28 to go)", out)
+        many = [_outcome("BTC/USDT", "long", f"2026-02-{d:02d}", f"2026-03-{d:02d}",
+                         "WIN", 1.0) for d in range(1, 29)] + [
+                _outcome("BTC/USDT", "long", f"2026-04-{d:02d}", f"2026-05-{d:02d}",
+                         "WIN", 1.0) for d in range(1, 4)]
+        out = self._run(many)
+        self.assertIn("labeled dates: 31 distinct (meta-model graduation threshold 30 -- met)", out)
+        self.assertNotIn("of 30", out)
+
+
 if __name__ == "__main__":
     unittest.main()

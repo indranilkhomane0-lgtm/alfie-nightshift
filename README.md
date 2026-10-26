@@ -16,6 +16,18 @@ with one command and no dependencies.
 (`python3 nightshift/verify_chain.py` still works -- it forwards to the
 path above.)
 
+The default output fits one screen. It leads with chain validity, the
+win/loss record with its expectancy, and the receipt summary. Per-version
+slices with no graded calls are named on one line per section rather
+than printed as empty blocks, and the code-version list is printed as a
+count. Nothing is omitted, and two flags restore the full detail:
+
+    python3 core/verify_chain.py --all-slices     # every per-version slice as a full block, empty ones included
+    python3 core/verify_chain.py --code-versions  # every code_version and the entry it first appears at
+    python3 core/verify_chain.py --full           # both
+
+The output lists these flags at its end.
+
 This recomputes every hash from genesis using Python's standard library only.
 If any historical entry was edited, deleted, or reordered, it fails at that
 exact line and tells you which one.
@@ -77,7 +89,8 @@ which is the version in force when the call was *graded*, a hold period
 after it was made. They are known to be misattributed. They are still
 printed, labelled as such, so the defect stays visible. The stamp-time
 section keys on `stamped_strategy_version`, the version recorded on the
-prediction row when it was made, and is the correct attribution. Calls
+prediction row when it was made, and is the correct attribution. It is
+printed first and leads with the unattributable bucket. Calls
 stamped before that field existed go to an explicit "unattributable"
 bucket. No version is inferred or backfilled for them.
 
@@ -497,7 +510,7 @@ trusting a count written here.
 
     python3 run_nightshift.py             # full cycle, live Binance data
     python3 nightshift/label_outcomes.py  # grade anything that has settled
-    python3 core/verify_chain.py          # check the chain
+    python3 core/verify_chain.py          # check the chain (--full for every slice and code version)
     python3 tests/run_isolated.py         # run the test suite (see below)
 
 ### Running the test suite
