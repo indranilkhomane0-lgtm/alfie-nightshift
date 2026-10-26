@@ -1,5 +1,6 @@
 import logging, pickle, warnings
 from dataclasses import dataclass
+from typing import NamedTuple
 from pathlib import Path
 from datetime import date, timedelta
 import numpy as np
@@ -49,6 +50,18 @@ class MetaRankScore:
                 f"pred_decay={self.predicted_decay:.2f}  "
                 f"uncertainty=±{self.uncertainty:.3f}  "
                 f"rank={self.rank_score:.4f}  (regime_n={self.regime_n_samples})")
+
+
+class RankedConfig(NamedTuple):
+    """One rank() result: `index` is the position of the scored config
+    in the list rank() was given, so a caller reorders its own parallel
+    lists by r.index and takes the score from the same r -- order and
+    identity travel together. rank() used to return bare scores already
+    sorted, and cycle.py re-sorted them by position as if they were
+    still in input order; the reorder was the identity and every brief
+    paired configs with other configs' scores (disclosed on the chain)."""
+    index: int
+    score: MetaRankScore
 
 class MetaModel:
     def __init__(self):
@@ -120,15 +133,18 @@ class MetaModel:
     def _feat(self, d):
         return np.array([float(d.get(c, 0.0)) for c in FEATURE_COLS]).reshape(1,-1)
 
-    def rank(self, configs, regime_state, gt_scores):
+    def rank(self, configs, regime_state, gt_scores) -> list[RankedConfig]:
+        """Scores every config and returns RankedConfig(index, score)
+        sorted best-first (stable: ties keep input order). index points
+        into `configs` -- see RankedConfig."""
         rn  = regime_corpus_size(regime_state)
         out = []
-        for cfg, gt in zip(configs, gt_scores):
+        for i, (cfg, gt) in enumerate(zip(configs, gt_scores)):
             cid = cfg.get("config_id","?")
             if not self._trained:
-                out.append(MetaRankScore(config_id=cid, rank_score=gt,
+                out.append(RankedConfig(i, MetaRankScore(config_id=cid, rank_score=gt,
                     survival_prob=0.5, predicted_decay=0.5, uncertainty=1.0,
-                    regime_n_samples=rn, model_active=False, fallback_score=gt))
+                    regime_n_samples=rn, model_active=False, fallback_score=gt)))
                 continue
             X = self._feat(cfg)
             try:
@@ -141,15 +157,15 @@ class MetaModel:
                     unc    = float(np.std([float(s[0]) for s in stages[-50:]]))
                 except: unc = 0.0
                 rs  = pd_ * sp * (1.0 - min(unc, 0.5))
-                out.append(MetaRankScore(config_id=cid, rank_score=rs,
+                out.append(RankedConfig(i, MetaRankScore(config_id=cid, rank_score=rs,
                     survival_prob=sp, predicted_decay=pd_, uncertainty=unc,
-                    regime_n_samples=rn, model_active=True, fallback_score=gt))
+                    regime_n_samples=rn, model_active=True, fallback_score=gt)))
             except Exception as e:
                 log.warning("Meta inference error %s: %s", cid, e)
-                out.append(MetaRankScore(config_id=cid, rank_score=gt,
+                out.append(RankedConfig(i, MetaRankScore(config_id=cid, rank_score=gt,
                     survival_prob=0.5, predicted_decay=0.5, uncertainty=1.0,
-                    regime_n_samples=rn, model_active=False, fallback_score=gt))
-        out.sort(key=lambda s: s.rank_score, reverse=True)
+                    regime_n_samples=rn, model_active=False, fallback_score=gt)))
+        out.sort(key=lambda r: r.score.rank_score, reverse=True)
         return out
 
     def feature_importances(self):

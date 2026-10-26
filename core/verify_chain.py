@@ -19,10 +19,9 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Seven freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
-FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4,
-FROZEN_STRATEGY_VERSION_V5, and FROZEN_STRATEGY_VERSION below. The first
+Eight freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V6, and
+FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
 tooling/infra commit made under the freeze, silently: an anchoring fix or
@@ -79,8 +78,13 @@ third and fourth corrections. That produced FROZEN_STRATEGY_VERSION_V5.
 The sixth correction (2026-10-26) moved the hash for an attribution
 fix, not a strategy change: nightshift/stamp_prediction.py now writes
 strategy_version into each stamped row, so a graded call can be
-attributed to the version that MADE it. That produced the current value,
-FROZEN_STRATEGY_VERSION. All seven constants and all seven filtered
+attributed to the version that MADE it. That produced
+FROZEN_STRATEGY_VERSION_V6. The seventh correction (2026-10-26) fixed
+the ranking pairing: MetaModel.rank() returned scores already sorted and
+nightshift/cycle.py re-sorted them by position, so the published order
+was MC-gate order and every META line described another config. That
+produced the current value, FROZEN_STRATEGY_VERSION. All eight constants
+and all eight filtered
 sections stay: each slice is real history that already happened under
 those terms and does not get erased by the next correction.
 
@@ -265,10 +269,24 @@ FROZEN_STRATEGY_VERSION_V5 = "0abecbf74ce81a865c95aa45e3859582558292110d451c648c
 # docstring's ATTRIBUTION section). No change to entry_signal(),
 # direction, entry_price, _context_hash() or its inputs, or which config
 # gets ranked/selected -- moves the hash for the same no-carve-out reason
-# as the third through fifth corrections. This is the value that
+# as the third through fifth corrections. Governed the freeze from this
+# correction until the seventh below. Superseded -- kept, filter and all.
+FROZEN_STRATEGY_VERSION_V6 = "fd8806aa47e4b5710157a6e3f510813ef23d1af27d7068d776b92175da8029ca"
+
+# Seventh correction, declared 2026-10-26: ranking pairing fix.
+# MetaModel.rank() (nightshift/meta_model.py) returned its scores already
+# sorted, and nightshift/cycle.py then reordered mc_passed by
+# meta_scores[i] as if that list were still in input order -- always the
+# identity. From the first cycle (2026-06-18) the published #1 was MC-gate
+# output order, and each brief's META line described a different config
+# from the one it sat beside. rank() now returns RankedConfig(index,
+# score) and cycle._apply_ranking() reorders every parallel list from the
+# same element. This DOES change what a call's ranking is -- which config
+# is published #1 -- though not which configs get stamped (all mc_passed
+# configs with a live entry signal, as before). This is the value that
 # actually governs the freeze from this correction forward. Literal here
 # for the same zero-repo-imports reason as the constants above.
-FROZEN_STRATEGY_VERSION = "fd8806aa47e4b5710157a6e3f510813ef23d1af27d7068d776b92175da8029ca"
+FROZEN_STRATEGY_VERSION = "16c9e3a7b356dd6c8e02d5af333177d6c54b8f876a44a32754543a3c0adaae99"
 
 # data key of the METHODOLOGY_CHANGE that disclosed grading-time
 # misattribution and introduced stamped_strategy_version. Located by key,
@@ -486,6 +504,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv4_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V4)
     frozen_sv5_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V5)
     frozen_sv5_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V5)
+    frozen_sv6_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V6)
+    frozen_sv6_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V6)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -493,7 +513,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     tracked_versions = [
         FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
         FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4,
-        FROZEN_STRATEGY_VERSION_V5, FROZEN_STRATEGY_VERSION,
+        FROZEN_STRATEGY_VERSION_V5, FROZEN_STRATEGY_VERSION_V6,
+        FROZEN_STRATEGY_VERSION,
     ]
 
     def stamped_bucket(match):
@@ -547,6 +568,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v5_return_stats": {
             "win": (*_mean_median(frozen_sv5_win), len(frozen_sv5_win)),
             "loss": (*_mean_median(frozen_sv5_loss), len(frozen_sv5_loss)),
+        },
+        "frozen_strategy_version_v6_return_stats": {
+            "win": (*_mean_median(frozen_sv6_win), len(frozen_sv6_win)),
+            "loss": (*_mean_median(frozen_sv6_loss), len(frozen_sv6_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -703,10 +728,18 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs5rs['win'])}")
     print(f"  losses: {_print_return_stats(fs5rs['loss'])}")
 
+    fs6rs = stats["frozen_strategy_version_v6_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V6[:12]} only "
+          f"-- sixth correction (strategy_version recorded on every stamped "
+          f"row; attribution fix, no change to how a call is made), "
+          f"superseded; kept for history; {grading_note}):")
+    print(f"  wins:   {_print_return_stats(fs6rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs6rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- sixth correction (strategy_version recorded on every stamped "
-          f"row; attribution fix, no change to how a call is made); current "
+          f"-- seventh correction (ranking pairing fix: published order is "
+          f"now meta-model/GT rank order, not MC-gate order); current "
           f"frozen strategy version; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
@@ -720,7 +753,8 @@ def main() -> int:
         (FROZEN_STRATEGY_VERSION_V3, "third correction"),
         (FROZEN_STRATEGY_VERSION_V4, "fourth correction"),
         (FROZEN_STRATEGY_VERSION_V5, "fifth correction"),
-        (FROZEN_STRATEGY_VERSION, "sixth correction, current"),
+        (FROZEN_STRATEGY_VERSION_V6, "sixth correction"),
+        (FROZEN_STRATEGY_VERSION, "seventh correction, current"),
     ]
     for sv, label in stamp_labels:
         st = stats["stamp_time_return_stats"][sv]

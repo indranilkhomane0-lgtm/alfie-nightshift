@@ -678,10 +678,9 @@ def replay(archived: dict, delta_rows: list, cycle_id: int, target: _date,
             f"plain gt_score sort. Fully deterministic, no caveat needed.")
 
     gt_scores = [r.gt_score_oos for r in mc_passed]
-    meta_scores = meta.rank(cfg_dicts, regime.state, gt_scores)
-    order = sorted(range(len(mc_passed)), key=lambda i: meta_scores[i].rank_score, reverse=True)
-    mc_passed_ranked = [mc_passed[i] for i in order]
-    cfg_dicts_ranked = [cfg_dicts[i] for i in order]
+    ranked = meta.rank(cfg_dicts, regime.state, gt_scores)
+    mc_passed_ranked = [mc_passed[r.index] for r in ranked]
+    cfg_dicts_ranked = [cfg_dicts[r.index] for r in ranked]
 
     from nightshift.stamp_prediction import entry_signal, _context_hash
     replayed_predictions = []

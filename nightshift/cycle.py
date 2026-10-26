@@ -121,6 +121,18 @@ def _write_graduation_sidecar(cycle_id, meta) -> None:
 
 # ── Brief formatter ───────────────────────────────────────────────────────────
 
+def _apply_ranking(ranked, mc_passed, cfg_dicts):
+    """Reorder mc_passed and cfg_dicts into rank() order and return
+    them with their scores. Every element comes from the same
+    RankedConfig, so a config can never be paired with another config's
+    score -- the defect this replaced (re-sorting an already-sorted
+    score list by position) made the reorder the identity and attached
+    every brief's META lines to the wrong configs."""
+    return ([mc_passed[r.index] for r in ranked],
+            [cfg_dicts[r.index] for r in ranked],
+            [r.score for r in ranked])
+
+
 def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
            corpus_n, duration):
     now   = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
@@ -163,7 +175,7 @@ def _brief(cycle_id, regime, top_configs, monitor_statuses, meta_scores,
             f" G3={mc.get('gate3_p10',0):.2f}"
             f" G4={mc.get('gate4_p10',0):.2f}"
             f" G5_sens={mc.get('gate5_sensitivity',0):.2f}",
-            f"      META {ms.explain()}",
+            f"      META {ms.explain()}  scored={ms.config_id}",
             f"      Params: {json.dumps(cfg.params)}",
         ]
     lines += ["",
@@ -300,12 +312,8 @@ class NightShiftCycle:
                 "btc_dominance_delta":ds.get("btc_dominance_delta",0),
             })
         gt_scores   = [r.gt_score_oos for r in mc_passed]
-        meta_scores = self.meta.rank(cfg_dicts, regime.state, gt_scores)
-        order       = sorted(range(len(mc_passed)),
-                             key=lambda i: meta_scores[i].rank_score, reverse=True)
-        mc_passed   = [mc_passed[i] for i in order]
-        meta_scores = [meta_scores[i] for i in order]
-        cfg_dicts   = [cfg_dicts[i] for i in order]
+        mc_passed, cfg_dicts, meta_scores = _apply_ranking(
+            self.meta.rank(cfg_dicts, regime.state, gt_scores), mc_passed, cfg_dicts)
         for cfg in cfg_dicts: insert_config_entry(self.cycle_id, cfg)
         top3  = mc_passed[:3]
         top3m = meta_scores[:3]

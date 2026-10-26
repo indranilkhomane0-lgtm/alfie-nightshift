@@ -195,9 +195,9 @@ class ShouldRetrainGateTest(unittest.TestCase):
         self.assertFalse(was_trained)
         self.assertFalse(meta._trained, "must remain in fallback, not half-graduated")
 
-        scores = meta.rank([{"config_id": "x"}], regime_state=1, gt_scores=[0.42])
-        self.assertFalse(scores[0].model_active)
-        self.assertEqual(scores[0].rank_score, 0.42)
+        ranked = meta.rank([{"config_id": "x"}], regime_state=1, gt_scores=[0.42])
+        self.assertFalse(ranked[0].score.model_active)
+        self.assertEqual(ranked[0].score.rank_score, 0.42)
 
     def test_transition_only_sidecar_pattern_does_not_refire_on_retrain(self):
         """Reproduces cycle.py Stage 6's exact guard

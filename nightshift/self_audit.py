@@ -1190,6 +1190,116 @@ def check_stamped_strategy_version(entries: list[dict]) -> dict:
     return finding
 
 
+# ── Check 12: published ranking order ───────────────────────────────────
+
+# data key of the METHODOLOGY_CHANGE that fixed the rank()/cycle.py
+# pairing bug and added scored=<config_id> to every META line.
+RANKING_MARKER_KEY = "ranking_pairing_fix"
+
+_BRIEF_CFG_RE = re.compile(r"^\s*\[(\d+)\]\s+(\S+)\s*$")
+_BRIEF_GT_RE = re.compile(r"^\s*GT=(-?[\d.]+)")
+_BRIEF_META_RE = re.compile(
+    r"^\s*META\s+(?P<body>.*?)(?:\s+scored=(?P<scored>\S+))?\s*$")
+_META_SCORE_RE = re.compile(r"(?:GT-Score=|rank=)(-?[\d.]+)")
+
+
+def brief_ranking_findings(text: str) -> dict:
+    """Parses a brief's TOP CONFIGURATIONS block and returns findings:
+    `identity` -- a META line scoring a config other than the one it
+    sits beside (scored=<id> differs, or a [FALLBACK] GT-Score differs
+    from that config's own GT=); `order` -- printed scores not
+    non-increasing from [1] down (the published order must be the one
+    the published scores imply); `unlabelled` -- META lines without
+    scored=<id>. Rounded printed values preserve order, so comparing
+    them is exact enough for a non-increasing check."""
+    blocks, cur = [], None
+    section = text.split("── TOP CONFIGURATIONS", 1)[-1].split("── LIVE HEALTH", 1)[0]
+    for line in section.splitlines():
+        m = _BRIEF_CFG_RE.match(line)
+        if m:
+            cur = {"pos": int(m.group(1)), "config_id": m.group(2)}
+            blocks.append(cur)
+            continue
+        if cur is None:
+            continue
+        m = _BRIEF_GT_RE.match(line)
+        if m:
+            cur["gt"] = m.group(1)
+            continue
+        m = _BRIEF_META_RE.match(line)
+        if m:
+            body = m.group("body")
+            s = _META_SCORE_RE.search(body)
+            cur["score"] = s.group(1) if s else None
+            cur["fallback"] = body.startswith("[FALLBACK]")
+            cur["scored"] = m.group("scored")
+    out = {"identity": [], "order": [], "unlabelled": [], "n_configs": len(blocks)}
+    for b in blocks:
+        if b.get("scored") is None:
+            out["unlabelled"].append(b["pos"])
+        elif b["scored"] != b["config_id"]:
+            out["identity"].append({"pos": b["pos"], "config_id": b["config_id"],
+                                    "scored": b["scored"]})
+            continue
+        if b.get("fallback") and b.get("score") is not None and b.get("gt") != b["score"]:
+            out["identity"].append({"pos": b["pos"], "config_id": b["config_id"],
+                                    "gt": b.get("gt"), "meta_gt_score": b["score"]})
+    scores = [float(b["score"]) for b in blocks if b.get("score") is not None]
+    for k in range(1, len(scores)):
+        if scores[k] > scores[k - 1]:
+            out["order"].append({"pos": k + 1, "score": scores[k], "above": scores[k - 1]})
+    return out
+
+
+def check_published_ranking_order(entries: list[dict]) -> dict:
+    """Every NIGHTLY_BRIEF chained after the RANKING_MARKER_KEY
+    METHODOLOGY_CHANGE must list its configs in the order its own
+    printed scores imply, and every META line must score the config it
+    sits beside (scored=<config_id>). The brief is read from
+    nightshift/briefs/ and checked against the chained brief_sha256
+    first, so what's audited is what was published. Briefs before the
+    marker were produced with the pairing bug (cycle.py reordered by
+    position into an already-sorted list -- the identity) and are not
+    findings here; they stand as published."""
+    finding = {"name": "published_ranking_order", "status": "PASS",
+               "detail": {"ranking_identity_mismatches": [],
+                          "ranking_order_violations": [],
+                          "meta_lines_unlabelled": [], "briefs_unverifiable": []}}
+    marker_idx = next(
+        (i for i, e in enumerate(entries)
+         if e.get("payload", {}).get("type") == "METHODOLOGY_CHANGE"
+         and RANKING_MARKER_KEY in (e.get("payload", {}).get("data") or {})),
+        None)
+    finding["detail"]["marker_index"] = marker_idx
+    if marker_idx is None:
+        finding["status"] = "SKIP"
+        finding["detail"]["reason"] = "ranking fix METHODOLOGY_CHANGE not on the chain yet"
+        return finding
+    d = finding["detail"]
+    for e in entries[marker_idx + 1:]:
+        p = e.get("payload", {})
+        if p.get("type") != "NIGHTLY_BRIEF":
+            continue
+        name = p.get("brief_file", "")
+        path = BRIEF_DIR / name
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            d["briefs_unverifiable"].append({"brief": name, "reason": str(exc)})
+            continue
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != p.get("brief_sha256"):
+            d["briefs_unverifiable"].append({"brief": name, "reason": "sha256 differs from chain"})
+            continue
+        f = brief_ranking_findings(text)
+        d["ranking_identity_mismatches"] += [{"brief": name, **x} for x in f["identity"]]
+        d["ranking_order_violations"] += [{"brief": name, **x} for x in f["order"]]
+        d["meta_lines_unlabelled"] += [{"brief": name, "pos": x} for x in f["unlabelled"]]
+    if any(d[k] for k in ("ranking_identity_mismatches", "ranking_order_violations",
+                          "meta_lines_unlabelled", "briefs_unverifiable")):
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1214,6 +1324,7 @@ def main() -> int:
             _run_check(check_test_isolation_guard),
             _run_check(check_system_timezone),
             _run_check(check_stamped_strategy_version, entries),
+            _run_check(check_published_ranking_order, entries),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1292,6 +1403,8 @@ FINDING_KEYS = {
     "missing_paths", "broken_verify_commands", "constant_mismatches",
     "missing", "bypassed", "changed",
     "version_mismatches", "no_brief_for_night",
+    "ranking_identity_mismatches", "ranking_order_violations",
+    "meta_lines_unlabelled", "briefs_unverifiable",
 }
 
 

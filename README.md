@@ -182,9 +182,12 @@ Seven stages, run against BTC/USDT, ETH/USDT, and SOL/USDT on Binance:
    genuinely out-of-sample" below.
 5. Monte Carlo gating — 5 gates covering noise, slippage, parameter
    perturbation, and block resampling; a config must pass all five
-6. Meta-model ranking — intended to rank survivors with a trained
-   survival model. It has never trained on real data (see below) and
-   currently always falls back to ranking by GT-Score instead.
+6. Meta-model ranking — ranks survivors with a trained survival model,
+   or by GT-Score while the model is untrained. It first trained on real
+   data on 2026-10-19 (chain entry 432) with a cross-validated AUC of
+   about 0.5, no better than chance. Until 2026-10-26 this stage didn't
+   order anything: see "Fixed defect — ranking never ordered the brief"
+   below.
 7. Live monitor + brief — intended to run decay checks and auto-suspend
    before the brief is written and chained. Neither has ever executed;
    the brief is still written and chained every night regardless.
@@ -263,6 +266,23 @@ issues on this list: the broken `venv/bin/pip` shebang
 (`tests/run_isolated.py`'s docstring) and `--demo`'s corpus/model
 pollution above.
 
+### Fixed defect — ranking never ordered the brief (2026-06-18 to 2026-10-26)
+
+From the initial commit, 607da1f (2026-06-18), `MetaModel.rank()`
+(nightshift/meta_model.py) returned its scores already sorted.
+nightshift/cycle.py then reordered the configs by position in that list,
+as if it were still in input order. The reorder was therefore always the
+identity. The published #1 was simply the first config out of the Monte
+Carlo gate, and each config's META line showed the score of a different
+config. Neither the GT-Score fallback nor the trained model ever ordered
+a brief. `rank()` now returns `(index, score)` pairs, the configs are
+reordered from those pairs, and every META line names the config it
+scored (`scored=<config_id>`). nightshift/self_audit.py checks every
+brief published after the fix. Which configs get stamped was never
+affected: every config that passes Monte Carlo gating and has a live
+entry signal is stamped, whatever its rank. Briefs from before the fix
+are not edited.
+
 ### Fixed defect — WFO metrics were not genuinely out-of-sample (2026-06-18 to 2026-08-04)
 
 From the system's initial commit, 607da1f (2026-06-18), through
@@ -326,6 +346,28 @@ disclosure of the remaining bias, not a fix for it.
 
 A METHODOLOGY_CHANGE chain entry documenting this fix and its date is
 published separately.
+
+## What replay actually covers
+
+core/reproduce.py re-runs a past night from archived inputs and compares
+its calls with what was stamped. It covers less than that sounds like:
+
+- **Without flags, it only replays nights since the current
+  strategy_version.** It refuses any night recorded under a different
+  strategy_version. `--allow-strategy-mismatch` overrides this, and the
+  tool itself says such a run is not a verification.
+- **Each generation move resets that window to zero.** Any change to a
+  file in nightshift/strategy_version.py's STRATEGY_VERSION_FILES moves
+  strategy_version. From then on, every earlier night needs the override.
+- **A full replay also needs every asset's OHLCV archived for that
+  night.** Bars are archived only for assets that stamped a prediction.
+  Many nights can't be replayed for that reason alone.
+- **`--splice-live-candle` has never run end-to-end on real data.** It
+  needs night N+1's archive to supply night N's live candle. No archived
+  night N has an archived night N+1, so it is covered by the fixtures in
+  tests/test_reproduce.py only.
+- **The comparison is per asset, on the first prediction stamped.** The
+  order of stamped predictions matters to it.
 
 ## Honest limitations
 
