@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 from verify_chain import (  # noqa: E402
     compute_stats, FROZEN_CODE_VERSION, FROZEN_STRATEGY_VERSION,
-    FROZEN_STRATEGY_VERSION_V5, ATTRIBUTION_MARKER_KEY,
+    FROZEN_STRATEGY_VERSION_V5, ATTRIBUTION_MARKER_KEY, breakout_testable_nights,
     ANCHORING_START, OTS_MAGIC, PENDING_ATTESTATION_TAG,
     CONFIRMED_ATTESTATION_TAG, PENDING_GRACE_HOURS,
 )
@@ -540,6 +540,57 @@ class StampTimeAttributionTest(unittest.TestCase):
         stats = compute_stats(_write_chain(payloads))
         self.assertEqual(stats["attribution_marker_entry"], 3)
         self.assertIsNone(compute_stats(_write_chain(payloads[:2]))["attribution_marker_entry"])
+
+
+
+class BreakoutTestableNightsTest(unittest.TestCase):
+    """breakout_testable_nights(): a night counts only with a live
+    breakout survivor AND every asset's OHLCV archived."""
+
+    def _archive(self, candidates, ohlcv_rows):
+        import csv, gzip
+        d = Path(tempfile.mkdtemp())
+        (d / "corpus_delta.jsonl").write_text(
+            "".join(json.dumps(c) + "\n" for c in candidates))
+        with gzip.open(d / "ohlcv.csv.gz", "wt", newline="") as f:
+            csv.writer(f).writerows(ohlcv_rows)
+        return d
+
+    def _bars(self, date, assets):
+        return [[date, a, "2026-01-01T00:00:00", "binance", 1, 1, 1, 1, 1] for a in assets]
+
+    ALL = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
+
+    def test_breakout_with_all_assets_counts(self):
+        d = self._archive([{"kind": "candidate", "cycle_id": 20261101,
+                            "strategy_family": "breakout"}],
+                          self._bars("2026-11-01", self.ALL))
+        self.assertEqual(breakout_testable_nights(d), ["2026-11-01"])
+
+    def test_breakout_with_one_asset_archived_does_not_count(self):
+        """The real 2026-10-23 shape: breakout survivors, SOL bars only."""
+        d = self._archive([{"kind": "candidate", "cycle_id": 20261023,
+                            "strategy_family": "breakout"}],
+                          self._bars("2026-10-23", ["SOL/USDT"]))
+        self.assertEqual(breakout_testable_nights(d), [])
+
+    def test_all_assets_without_breakout_does_not_count(self):
+        """The real 2026-10-07 shape: all three assets, no live breakout."""
+        d = self._archive([{"kind": "candidate", "cycle_id": 20261007,
+                            "strategy_family": "momentum"},
+                           {"kind": "cycle_marker", "cycle_id": 20261007}],
+                          self._bars("2026-10-07", self.ALL))
+        self.assertEqual(breakout_testable_nights(d), [])
+
+    def test_missing_archive_is_zero_not_an_error(self):
+        self.assertEqual(breakout_testable_nights(Path(tempfile.mkdtemp())), [])
+
+    def test_real_archive_count_is_currently_zero(self):
+        real = ROOT / "reports" / "archive"
+        if not (real / "corpus_delta.jsonl").exists():
+            self.skipTest("no real archive in this checkout")
+        self.assertNotIn("2026-10-23", breakout_testable_nights(real))
+        self.assertNotIn("2026-10-07", breakout_testable_nights(real))
 
 
 if __name__ == "__main__":

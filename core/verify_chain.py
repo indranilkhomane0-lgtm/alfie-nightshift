@@ -115,6 +115,8 @@ the frozen surface starts a new performance slice, it does not zero the
 graduation count.
 """
 
+import csv
+import gzip
 import hashlib
 import json
 import statistics
@@ -123,6 +125,10 @@ import time
 from pathlib import Path
 
 CHAIN_PATH = Path(__file__).resolve().parent.parent / "reports" / "chain.jsonl"
+ARCHIVE_DIR = Path(__file__).resolve().parent.parent / "reports" / "archive"
+# Mirrors nightshift/config.py's ASSETS, literally, for the same
+# zero-repo-imports reason as every other mirrored constant here.
+ASSETS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 OTS_DIR = Path(__file__).resolve().parent.parent / "reports" / "ots"
 GENESIS_HASH = "0" * 64
 
@@ -646,6 +652,37 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     }
 
 
+def breakout_testable_nights(archive_dir: Path = ARCHIVE_DIR) -> list:
+    """Archived nights on which breakout-family reproducibility can
+    actually be tested: at least one live breakout survivor in
+    corpus_delta.jsonl for that cycle, AND every asset's OHLCV archived
+    for that night (core/reproduce.py cannot replay regime/WFO without
+    all of ASSETS). Until such a night exists, breakout reproducibility
+    is untested on real data -- see the chain entry correcting entry
+    365's finding 3. Missing files count as no nights, not an error."""
+    breakout_dates = set()
+    cd = archive_dir / "corpus_delta.jsonl"
+    if cd.exists():
+        for line in cd.open():
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            if r.get("kind") == "candidate" and r.get("strategy_family") == "breakout":
+                c = str(r.get("cycle_id", ""))
+                if len(c) == 8:
+                    breakout_dates.add(f"{c[:4]}-{c[4:6]}-{c[6:]}")
+    assets_by_date = {}
+    oh = archive_dir / "ohlcv.csv.gz"
+    if oh.exists():
+        with gzip.open(oh, "rt", newline="") as f:
+            for row in csv.reader(f):
+                if len(row) >= 2:
+                    assets_by_date.setdefault(row[0], set()).add(row[1])
+    return sorted(d for d in breakout_dates
+                  if set(ASSETS) <= assets_by_date.get(d, set()))
+
+
 def _fmt_pct(x):
     return f"{x:+.2f}%" if x is not None else "n/a"
 
@@ -855,6 +892,12 @@ def main() -> int:
               f"for the same asset+direction+night carry different "
               f"stamped_strategy_version -- stamp-time slices above are not "
               f"reliable until this is investigated")
+
+    testable = breakout_testable_nights()
+    print(f"breakout reproducibility: {len(testable)} archived night(s) with "
+          f"live breakout survivors and all {len(ASSETS)} assets' OHLCV archived"
+          + (f" -- {', '.join(testable)}" if testable else
+             " -- untested on real data until this is at least 1"))
 
     print(f"code versions on record: {len(stats['code_versions'])}")
     for cv, idx in sorted(stats["code_versions"].items(), key=lambda kv: kv[1]):
