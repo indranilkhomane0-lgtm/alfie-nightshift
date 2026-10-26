@@ -19,8 +19,8 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Eleven freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V9, and
+Twelve freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V10, and
 FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
@@ -88,9 +88,10 @@ made a chained brief write-once (nightshift/brief_guard.py), producing
 FROZEN_STRATEGY_VERSION_V8. The ninth (2026-10-26) reverted the
 published order to GT-Score with the meta-model in shadow, producing
 FROZEN_STRATEGY_VERSION_V9. The tenth (2026-10-26) added
-nightshift/brief_guard.py to the hashed set, producing the current
-value, FROZEN_STRATEGY_VERSION. All eleven constants and all eleven
-filtered
+nightshift/brief_guard.py to the hashed set, producing
+FROZEN_STRATEGY_VERSION_V10. The eleventh (2026-10-26) archived every
+asset's OHLCV every night, producing the current value,
+FROZEN_STRATEGY_VERSION. All twelve constants and all twelve filtered
 sections stay: each slice is real history that already happened under
 those terms and does not get erased by the next correction.
 
@@ -323,9 +324,21 @@ FROZEN_STRATEGY_VERSION_V9 = "ba13e23bb5de8926d8622ba4157be8f138abf0d235f2c8c31f
 # to nightshift/strategy_version.py's STRATEGY_VERSION_FILES. It is
 # imported by cycle.py and can abort run() before any side effect, so it
 # decides whether a call is made at all. No code change to any file; the
-# hash moves because the hashed set grew. This is the value that actually
-# governs the freeze from this correction forward.
-FROZEN_STRATEGY_VERSION = "a0faa06f4feae265ca88ee215b8b2327136bbdeed70aeeece68fc2c3485af043"
+# hash moves because the hashed set grew. Governed the freeze until the
+# eleventh correction below. Superseded -- kept, filter and all.
+FROZEN_STRATEGY_VERSION_V10 = "a0faa06f4feae265ca88ee215b8b2327136bbdeed70aeeece68fc2c3485af043"
+
+# Eleventh correction, declared 2026-10-26: nightshift/cycle.py archives
+# every asset's closed-bar window in Stage 1, every night, not only the
+# assets that go on to stamp a prediction, so full replay no longer
+# depends on all three assets happening to stamp. Same window stamp()
+# hashes. No change to entry_signal(), direction, entry_price, the search
+# space, the gates, or which configs get stamped. The last move made
+# before the bar declared alongside it on the chain: from that entry,
+# STRATEGY_VERSION_FILES and the files on it change only for a change to
+# how a call is made. This is the value that actually governs the freeze
+# from this correction forward.
+FROZEN_STRATEGY_VERSION = "a51bc7cc18015cf78a6d90bc13818157cd9fe3c2445128c0cf5ceac48aaa2518"
 
 # data key of the METHODOLOGY_CHANGE that disclosed grading-time
 # misattribution and introduced stamped_strategy_version. Located by key,
@@ -431,6 +444,11 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     # never happen either; counted, not resolved silently.
     stamp_version_conflicts = 0
     attribution_marker_entry = None  # 1-based line of the ATTRIBUTION_MARKER_KEY entry
+    # strategy_version -> (1-based entry, published date) of first appearance;
+    # the last one seen is the version currently in force on the chain.
+    sv_first_seen = {}
+    current_sv = None
+    briefs_by_sv = {}  # NIGHTLY_BRIEF entries chained under each strategy_version
     # Distinct settle dates carrying >=1 WIN/LOSS -- what META_MIN_SAMPLES
     # actually counts (nightshift/db.py labeled_prediction_date_count), not
     # the number of graded calls. Multiple calls can settle the same day.
@@ -470,6 +488,13 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
                     and p.get("type") == "METHODOLOGY_CHANGE"
                     and ATTRIBUTION_MARKER_KEY in (p.get("data") or {})):
                 attribution_marker_entry = i
+            sv = p.get("strategy_version")
+            if sv:
+                if sv not in sv_first_seen:
+                    sv_first_seen[sv] = (i, entry.get("published_at_utc", "")[:10])
+                current_sv = sv
+                if p.get("type") == "NIGHTLY_BRIEF":
+                    briefs_by_sv[sv] = briefs_by_sv.get(sv, 0) + 1
             cv = p.get("code_version", "(predates code_version)")
             if cv not in code_versions:
                 code_versions[cv] = i
@@ -551,6 +576,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv8_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V8)
     frozen_sv9_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V9)
     frozen_sv9_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V9)
+    frozen_sv10_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V10)
+    frozen_sv10_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V10)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -562,6 +589,7 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         FROZEN_STRATEGY_VERSION_V7,
         FROZEN_STRATEGY_VERSION_V8,
         FROZEN_STRATEGY_VERSION_V9,
+        FROZEN_STRATEGY_VERSION_V10,
         FROZEN_STRATEGY_VERSION,
     ]
 
@@ -633,11 +661,20 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
             "win": (*_mean_median(frozen_sv9_win), len(frozen_sv9_win)),
             "loss": (*_mean_median(frozen_sv9_loss), len(frozen_sv9_loss)),
         },
+        "frozen_strategy_version_v10_return_stats": {
+            "win": (*_mean_median(frozen_sv10_win), len(frozen_sv10_win)),
+            "loss": (*_mean_median(frozen_sv10_loss), len(frozen_sv10_loss)),
+        },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
             "loss": (*_mean_median(frozen_sv_loss), len(frozen_sv_loss)),
         },
         "attribution_marker_entry": attribution_marker_entry,
+        "distinct_strategy_versions": len(sv_first_seen),
+        "current_strategy_version": current_sv,
+        "current_strategy_version_since": sv_first_seen.get(current_sv, (None, None))[1],
+        "current_strategy_version_first_entry": sv_first_seen.get(current_sv, (None, None))[0],
+        "current_strategy_version_nights": briefs_by_sv.get(current_sv, 0),
         "stamp_version_conflicts": stamp_version_conflicts,
         "stamp_time_return_stats": {
             sv: stamped_bucket(lambda s, sv=sv: s == sv) for sv in tracked_versions
@@ -845,9 +882,15 @@ def main() -> int:
     print(f"  wins:   {_print_return_stats(fs9rs['win'])}")
     print(f"  losses: {_print_return_stats(fs9rs['loss'])}")
 
+    fs10rs = stats["frozen_strategy_version_v10_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V10[:12]} only "
+          f"-- tenth correction (nightshift/brief_guard.py added to the frozen surface; no code change), superseded; kept for history; {grading_note}):")
+    print(f"  wins:   {_print_return_stats(fs10rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs10rs['loss'])}")
+
     fsrs = stats["frozen_strategy_version_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
-          f"-- tenth correction (nightshift/brief_guard.py added to the frozen surface; no code change); current frozen strategy version; {grading_note}):")
+          f"-- eleventh correction (every asset's OHLCV archived every night; no change to how a call is made); current frozen strategy version; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
 
@@ -864,7 +907,8 @@ def main() -> int:
         (FROZEN_STRATEGY_VERSION_V7, "seventh correction"),
         (FROZEN_STRATEGY_VERSION_V8, "eighth correction"),
         (FROZEN_STRATEGY_VERSION_V9, "ninth correction"),
-        (FROZEN_STRATEGY_VERSION, "tenth correction, current"),
+        (FROZEN_STRATEGY_VERSION_V10, "tenth correction"),
+        (FROZEN_STRATEGY_VERSION, "eleventh correction, current"),
     ]
     for sv, label in stamp_labels:
         st = stats["stamp_time_return_stats"][sv]
@@ -892,6 +936,19 @@ def main() -> int:
               f"for the same asset+direction+night carry different "
               f"stamped_strategy_version -- stamp-time slices above are not "
               f"reliable until this is investigated")
+
+    csv_ = stats["current_strategy_version"]
+    if csv_:
+        n = stats["current_strategy_version_nights"]
+        print(f"current strategy_version {csv_[:12]} in force since "
+              f"{stats['current_strategy_version_since']} (entry "
+              f"{stats['current_strategy_version_first_entry']}; {n} night"
+              f"{'' if n == 1 else 's'} chained under it)")
+        if csv_ != FROZEN_STRATEGY_VERSION:
+            print(f"  NOTE: differs from this verifier's FROZEN_STRATEGY_VERSION "
+                  f"{FROZEN_STRATEGY_VERSION[:12]} -- the chain has moved past "
+                  f"this checkout, or this checkout past the chain")
+    print(f"distinct strategy_versions on the chain: {stats['distinct_strategy_versions']}")
 
     testable = breakout_testable_nights()
     print(f"breakout reproducibility: {len(testable)} archived night(s) with "

@@ -15,6 +15,8 @@ from nightshift.wfo_engine import WFOEngine
 from nightshift.mc_gate import run_mc_gates
 from nightshift.meta_model import get_meta_model, rank_by_gt_score
 from nightshift.brief_guard import assert_not_chained, write_brief
+from nightshift.archive_ohlcv import archive_closed_bars
+from core.bar_calendar import is_utc_daily_bar_complete
 from nightshift.live_monitor import LiveMonitor
 from nightshift.strategies import STRATEGY_REGISTRY
 from nightshift.derivatives import get_all_signals_with_status
@@ -308,6 +310,18 @@ class NightShiftCycle:
         for a in ASSETS:
             signals[a], signal_status[a] = get_all_signals_with_status(a)
         log.info("  %d assets loaded", len(ASSETS))
+        # Archive every asset's closed-bar window every night, not only the
+        # assets that go on to stamp: full replay (core/reproduce.py) needs
+        # all of ASSETS, and tying it to every asset happening to stamp made
+        # it a coincidence. Same window and filter stamp_prediction.stamp()
+        # hashes (same DataFrame, same is_utc_daily_bar_complete cut, same
+        # date), so stamp()'s own archive call is then a per-run no-op.
+        # Real fetches only -- never synthetic test-mode prices.
+        for a in ASSETS:
+            if price_status.get(a):
+                df = prices[a]
+                archive_closed_bars(a, df[[is_utc_daily_bar_complete(i) for i in df.index]],
+                                    EXCHANGE_ID, date.today().isoformat())
 
         # Stage 2 — collect pending outcomes
         log.info("Stage 2/7: Collecting pending live outcomes …")

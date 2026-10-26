@@ -376,8 +376,11 @@ its calls with what was stamped. It covers less than that sounds like:
   file in nightshift/strategy_version.py's STRATEGY_VERSION_FILES moves
   strategy_version. From then on, every earlier night needs the override.
 - **A full replay also needs every asset's OHLCV archived for that
-  night.** Bars are archived only for assets that stamped a prediction.
-  Many nights can't be replayed for that reason alone.
+  night.** From 2026-10-27, every asset's bars are archived every night
+  the fetch succeeds. Before that, only assets that stamped a prediction
+  were archived, so most earlier nights can't be fully replayed. The
+  archive holds three nights from that period, and only 2026-10-07 has
+  all three assets.
 - **`--splice-live-candle` has never run end-to-end on real data.** It
   needs night N+1's archive to supply night N's live candle. No archived
   night N has an archived night N+1, so it is covered by the fixtures in
