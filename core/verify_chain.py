@@ -19,10 +19,10 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Six freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+Seven freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
 FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
-FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4, and
-FROZEN_STRATEGY_VERSION below. The first
+FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4,
+FROZEN_STRATEGY_VERSION_V5, and FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
 tooling/infra commit made under the freeze, silently: an anchoring fix or
@@ -75,10 +75,29 @@ graduation-sidecar write that now feeds a dedicated chain entry on the
 fallback-to-trained transition. Both files are on the frozen surface
 and are hashed whole with no carve-out, so both moving the hash
 regardless of causal relevance is the same no-carve-out reason as the
-third and fourth corrections. That produced the current value,
-FROZEN_STRATEGY_VERSION. All six constants and all six filtered
+third and fourth corrections. That produced FROZEN_STRATEGY_VERSION_V5.
+The sixth correction (2026-10-26) moved the hash for an attribution
+fix, not a strategy change: nightshift/stamp_prediction.py now writes
+strategy_version into each stamped row, so a graded call can be
+attributed to the version that MADE it. That produced the current value,
+FROZEN_STRATEGY_VERSION. All seven constants and all seven filtered
 sections stay: each slice is real history that already happened under
-those terms and does not get erased by the next correction. Note what
+those terms and does not get erased by the next correction.
+
+ATTRIBUTION -- READ THIS BEFORE TRUSTING ANY PER-VERSION NUMBER. The
+filtered sections above key on the strategy_version carried by each
+LABELED_OUTCOME entry, which publish_chain.py stamps at GRADING time,
+a full hold period after the call was made. Every one of them is
+therefore known-misattributed and is printed as GRADING-TIME
+attribution, pointing at the METHODOLOGY_CHANGE that disclosed it (found
+by its data key ATTRIBUTION_MARKER_KEY, not by a hardcoded index). They
+are kept, not dropped, so the defect stays visible here and not only in
+the chain. The STAMP-TIME section is the correct attribution: it keys on
+stamped_strategy_version (the row's own stamp-time strategy_version,
+carried onto LABELED_OUTCOME by nightshift/label_outcomes.py). A graded
+call without that key goes to an explicit "unattributable" bucket --
+never inferred, never backfilled -- whose label is derived from the
+earliest cycle_date of any graded call that does carry it. Note what
 does NOT reset here, since it's easy to conflate with what does:
 LABELED_DATES_TARGET progress (below) counts distinct settle dates across
 the whole predictions record, unfiltered by strategy_version -- changing
@@ -234,11 +253,29 @@ FROZEN_STRATEGY_VERSION_V4 = "2dd2221ce744f26e5dad3367a080a118329f22c9020860a0e9
 # how a call is made -- no change to entry_signal(), direction,
 # entry_price, or which config gets ranked/selected -- but moves the
 # hash for the same no-carve-out reason the third and fourth
-# corrections did (meta_model.py/cycle.py are hashed whole). This is
-# the value that actually governs the freeze from this correction
-# forward. Literal here for the same zero-repo-imports reason as the
-# constants above.
-FROZEN_STRATEGY_VERSION = "0abecbf74ce81a865c95aa45e3859582558292110d451c648ceabb50007fed8e"
+# corrections did (meta_model.py/cycle.py are hashed whole). Governed the
+# freeze from this correction until the sixth below. Superseded -- kept,
+# filter and all, for the same real-history reason as the constants above.
+FROZEN_STRATEGY_VERSION_V5 = "0abecbf74ce81a865c95aa45e3859582558292110d451c648ceabb50007fed8e"
+
+# Sixth correction, declared 2026-10-26: nightshift/stamp_prediction.py
+# now records strategy_version on every stamped row, computed once per
+# process, so a graded call can be attributed to the version that made
+# it instead of the version in force when it was graded (see the module
+# docstring's ATTRIBUTION section). No change to entry_signal(),
+# direction, entry_price, _context_hash() or its inputs, or which config
+# gets ranked/selected -- moves the hash for the same no-carve-out reason
+# as the third through fifth corrections. This is the value that
+# actually governs the freeze from this correction forward. Literal here
+# for the same zero-repo-imports reason as the constants above.
+FROZEN_STRATEGY_VERSION = "fd8806aa47e4b5710157a6e3f510813ef23d1af27d7068d776b92175da8029ca"
+
+# data key of the METHODOLOGY_CHANGE that disclosed grading-time
+# misattribution and introduced stamped_strategy_version. Located by key,
+# not by entry index, so the "see entry N" pointer printed beside every
+# grading-time slice is read off the chain itself. Keep in sync with
+# nightshift/self_audit.py's ATTRIBUTION_MARKER_KEY.
+ATTRIBUTION_MARKER_KEY = "stamp_time_attribution"
 
 # Meta-model graduation gate (nightshift/config.py META_MIN_SAMPLES) --
 # distinct labeled dates, not distinct calls or rows: same-night calls
@@ -332,6 +369,11 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     # that agreed. Same key status.py uses, for the same reason.
     distinct_calls = {}
     outcome_conflicts = 0  # same key, different outcome across entries -- should never happen
+    # Same key, different stamped_strategy_version across entries -- every
+    # config under one key is stamped by the same run, so this should
+    # never happen either; counted, not resolved silently.
+    stamp_version_conflicts = 0
+    attribution_marker_entry = None  # 1-based line of the ATTRIBUTION_MARKER_KEY entry
     # Distinct settle dates carrying >=1 WIN/LOSS -- what META_MIN_SAMPLES
     # actually counts (nightshift/db.py labeled_prediction_date_count), not
     # the number of graded calls. Multiple calls can settle the same day.
@@ -367,6 +409,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
                     stale_pending_entries.append(i)
 
             p = entry["payload"]
+            if (attribution_marker_entry is None
+                    and p.get("type") == "METHODOLOGY_CHANGE"
+                    and ATTRIBUTION_MARKER_KEY in (p.get("data") or {})):
+                attribution_marker_entry = i
             cv = p.get("code_version", "(predates code_version)")
             if cv not in code_versions:
                 code_versions[cv] = i
@@ -384,6 +430,9 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
                 prior = distinct_calls.get(key)
                 if prior is not None and prior["outcome"] != outcome:
                     outcome_conflicts += 1
+                stamped_sv = p.get("stamped_strategy_version")
+                if prior is not None and prior["stamped_strategy_version"] != stamped_sv:
+                    stamp_version_conflicts += 1
                 distinct_calls[key] = {
                     "outcome": outcome,
                     "return_pct": p.get("return_pct"),
@@ -396,6 +445,11 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
                     # does the right thing with None (never equals a real
                     # hash), so no special-casing is needed downstream.
                     "strategy_version": p.get("strategy_version"),
+                    # The version that MADE the call (stamp time), not the
+                    # one in force when it was graded. Same absent-stays-
+                    # None rule: None lands in the unattributable bucket.
+                    "stamped_strategy_version": stamped_sv,
+                    "cycle_date": p.get("cycle_date"),
                 }
                 settle_date = p.get("settle_date")
                 if settle_date:
@@ -430,8 +484,29 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv3_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V3)
     frozen_sv4_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V4)
     frozen_sv4_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V4)
+    frozen_sv5_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V5)
+    frozen_sv5_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V5)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
+
+    # Stamp-time attribution: keyed on stamped_strategy_version only.
+    tracked_versions = [
+        FROZEN_STRATEGY_VERSION_V1, FROZEN_STRATEGY_VERSION_V2,
+        FROZEN_STRATEGY_VERSION_V3, FROZEN_STRATEGY_VERSION_V4,
+        FROZEN_STRATEGY_VERSION_V5, FROZEN_STRATEGY_VERSION,
+    ]
+
+    def stamped_bucket(match):
+        out = {}
+        for side, outcome in (("win", "WIN"), ("loss", "LOSS")):
+            vals = [c["return_pct"] for c in distinct_calls.values()
+                    if c["outcome"] == outcome and c["return_pct"] is not None
+                    and match(c["stamped_strategy_version"])]
+            out[side] = (*_mean_median(vals), len(vals))
+        return out
+
+    carrying = [c["cycle_date"] for c in distinct_calls.values()
+                if c["stamped_strategy_version"] is not None and c["cycle_date"]]
 
     return {
         "entry_count": i,
@@ -469,10 +544,26 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
             "win": (*_mean_median(frozen_sv4_win), len(frozen_sv4_win)),
             "loss": (*_mean_median(frozen_sv4_loss), len(frozen_sv4_loss)),
         },
+        "frozen_strategy_version_v5_return_stats": {
+            "win": (*_mean_median(frozen_sv5_win), len(frozen_sv5_win)),
+            "loss": (*_mean_median(frozen_sv5_loss), len(frozen_sv5_loss)),
+        },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
             "loss": (*_mean_median(frozen_sv_loss), len(frozen_sv_loss)),
         },
+        "attribution_marker_entry": attribution_marker_entry,
+        "stamp_version_conflicts": stamp_version_conflicts,
+        "stamp_time_return_stats": {
+            sv: stamped_bucket(lambda s, sv=sv: s == sv) for sv in tracked_versions
+        },
+        "unattributable_return_stats": stamped_bucket(lambda s: s is None),
+        "untracked_stamped_return_stats": stamped_bucket(
+            lambda s: s is not None and s not in tracked_versions),
+        # Earliest cycle_date of a graded call carrying the field -- the
+        # unattributable bucket's label is generated from this, never
+        # from a hardcoded date. None until such a call is graded.
+        "first_stamped_cycle_date": min(carrying) if carrying else None,
     }
 
 
@@ -562,29 +653,36 @@ def main() -> int:
         f"distinct labeled dates"
     )
 
+    marker = stats["attribution_marker_entry"]
+    see = (f"see entry {marker}" if marker else
+           "see the stamp-time attribution METHODOLOGY_CHANGE, not yet on this chain")
+    grading_note = f"GRADING-TIME attribution -- known misattributed, {see}"
+
     fcrs = stats["frozen_code_version_return_stats"]
     print(f"return per graded call (code_version {FROZEN_CODE_VERSION[:12]} only "
-          f"-- original freeze, superseded twice; kept for history):")
+          f"-- original freeze, superseded twice; kept for history; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fcrs['win'])}")
     print(f"  losses: {_print_return_stats(fcrs['loss'])}")
 
     fs1rs = stats["frozen_strategy_version_v1_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V1[:12]} only "
-          f"-- first repoint (excluded meta_model.py), superseded; kept for history):")
+          f"-- first repoint (excluded meta_model.py), superseded; kept for history; "
+          f"{grading_note}):")
     print(f"  wins:   {_print_return_stats(fs1rs['win'])}")
     print(f"  losses: {_print_return_stats(fs1rs['loss'])}")
 
     fs2rs = stats["frozen_strategy_version_v2_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V2[:12]} only "
           f"-- second repoint (meta_model.py added as a conservative buffer), "
-          f"superseded; kept for history):")
+          f"superseded; kept for history; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fs2rs['win'])}")
     print(f"  losses: {_print_return_stats(fs2rs['loss'])}")
 
     fs3rs = stats["frozen_strategy_version_v3_return_stats"]
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V3[:12]} only "
           f"-- third correction (cycle.py brief-display fix, corpus_size() -> "
-          f"labeled_prediction_date_count()), superseded; kept for history):")
+          f"labeled_prediction_date_count()), superseded; kept for history; "
+          f"{grading_note}):")
     print(f"  wins:   {_print_return_stats(fs3rs['win'])}")
     print(f"  losses: {_print_return_stats(fs3rs['loss'])}")
 
@@ -592,18 +690,64 @@ def main() -> int:
     print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V4[:12]} only "
           f"-- fourth correction (raw-OHLCV archiving added to "
           f"stamp_prediction.py, archiving-only, no change to signal logic), "
-          f"superseded; kept for history):")
+          f"superseded; kept for history; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fs4rs['win'])}")
     print(f"  losses: {_print_return_stats(fs4rs['loss'])}")
 
-    fsrs = stats["frozen_strategy_version_return_stats"]
-    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
+    fs5rs = stats["frozen_strategy_version_v5_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION_V5[:12]} only "
           f"-- fifth correction (meta-model graduation gate repointed off "
           f"the permanently-zero labeled_date_count()/corpus_size() pair; "
-          f"gating fix, no change to how a call is made); "
-          f"current frozen strategy version):")
+          f"gating fix, no change to how a call is made), superseded; kept "
+          f"for history; {grading_note}):")
+    print(f"  wins:   {_print_return_stats(fs5rs['win'])}")
+    print(f"  losses: {_print_return_stats(fs5rs['loss'])}")
+
+    fsrs = stats["frozen_strategy_version_return_stats"]
+    print(f"return per graded call (strategy_version {FROZEN_STRATEGY_VERSION[:12]} only "
+          f"-- sixth correction (strategy_version recorded on every stamped "
+          f"row; attribution fix, no change to how a call is made); current "
+          f"frozen strategy version; {grading_note}):")
     print(f"  wins:   {_print_return_stats(fsrs['win'])}")
     print(f"  losses: {_print_return_stats(fsrs['loss'])}")
+
+    print("return per graded call by STAMP-TIME strategy_version "
+          "(stamped_strategy_version -- the version that MADE the call; "
+          "this is the correct attribution):")
+    stamp_labels = [
+        (FROZEN_STRATEGY_VERSION_V1, "first repoint"),
+        (FROZEN_STRATEGY_VERSION_V2, "second repoint"),
+        (FROZEN_STRATEGY_VERSION_V3, "third correction"),
+        (FROZEN_STRATEGY_VERSION_V4, "fourth correction"),
+        (FROZEN_STRATEGY_VERSION_V5, "fifth correction"),
+        (FROZEN_STRATEGY_VERSION, "sixth correction, current"),
+    ]
+    for sv, label in stamp_labels:
+        st = stats["stamp_time_return_stats"][sv]
+        print(f"  {sv[:12]} ({label}):")
+        print(f"    wins:   {_print_return_stats(st['win'])}")
+        print(f"    losses: {_print_return_stats(st['loss'])}")
+    first = stats["first_stamped_cycle_date"]
+    if first:
+        bucket = f"unattributable (stamped before {first}, the first graded cycle carrying stamped_strategy_version)"
+    else:
+        bucket = ("unattributable (no graded call on this chain carries "
+                  "stamped_strategy_version yet -- every graded call so far "
+                  "was stamped before the field existed)")
+    ua = stats["unattributable_return_stats"]
+    print(f"  {bucket}:")
+    print(f"    wins:   {_print_return_stats(ua['win'])}")
+    print(f"    losses: {_print_return_stats(ua['loss'])}")
+    ut = stats["untracked_stamped_return_stats"]
+    if ut["win"][2] or ut["loss"][2]:
+        print("  stamped under a strategy_version not tracked as a freeze above:")
+        print(f"    wins:   {_print_return_stats(ut['win'])}")
+        print(f"    losses: {_print_return_stats(ut['loss'])}")
+    if stats["stamp_version_conflicts"]:
+        print(f"  CONFLICT: {stats['stamp_version_conflicts']} case(s) where entries "
+              f"for the same asset+direction+night carry different "
+              f"stamped_strategy_version -- stamp-time slices above are not "
+              f"reliable until this is investigated")
 
     print(f"code versions on record: {len(stats['code_versions'])}")
     for cv, idx in sorted(stats["code_versions"].items(), key=lambda kv: kv[1]):

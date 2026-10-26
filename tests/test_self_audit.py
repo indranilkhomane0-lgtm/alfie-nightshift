@@ -16,6 +16,7 @@ stdlib only. Run directly:
 
     python3 tests/test_self_audit.py
 """
+import json
 import sys
 import tempfile
 import unittest
@@ -252,6 +253,87 @@ class SystemTimezoneDriftTest(unittest.TestCase):
         current = self_audit._current_system_timezone()
         self.assertIsNotNone(current)
         self.assertIn("/", current)
+
+
+SV_A = "a" * 64
+SV_B = "b" * 64
+
+
+def _brief(date_compact, sv):
+    return {"payload": {"type": "NIGHTLY_BRIEF",
+                        "brief_file": f"brief_{date_compact}.txt",
+                        "strategy_version": sv}}
+
+
+MARKER = {"payload": {"type": "METHODOLOGY_CHANGE",
+                      "data": {self_audit.ATTRIBUTION_MARKER_KEY: {}}}}
+
+
+class StampedStrategyVersionCheckTest(unittest.TestCase):
+    """check_stamped_strategy_version(): rows stamped on/after the
+    cutoff carry strategy_version equal to that night's NIGHTLY_BRIEF."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.pred_path = Path(self._tmp.name) / "predictions.jsonl"
+        self._patch = mock.patch.object(self_audit, "PREDICTIONS_PATH", self.pred_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def _rows(self, *rows):
+        self.pred_path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def test_pre_cutoff_rows_without_field_are_exempt(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-23"})
+        entries = [_brief("20261023", SV_A), MARKER]
+        result = self_audit.check_stamped_strategy_version(entries)
+        self.assertEqual(result["status"], "PASS")
+
+    def test_matching_row_passes(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-27",
+                    "strategy_version": SV_A})
+        entries = [MARKER, _brief("20261027", SV_A)]
+        self.assertEqual(self_audit.check_stamped_strategy_version(entries)["status"], "PASS")
+
+    def test_row_disagreeing_with_its_brief_fails(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-27",
+                    "strategy_version": SV_B})
+        entries = [MARKER, _brief("20261027", SV_A)]
+        result = self_audit.check_stamped_strategy_version(entries)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["detail"]["version_mismatches"][0]["prediction_id"], "p1")
+
+    def test_post_marker_row_missing_field_fails(self):
+        """The stamp path silently dropping the field altogether must
+        not degrade to SKIP -- the marker anchors the cutoff."""
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-27"})
+        entries = [MARKER, _brief("20261027", SV_A)]
+        result = self_audit.check_stamped_strategy_version(entries)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["detail"]["missing_after_cutoff"], ["p1"])
+
+    def test_row_with_field_but_no_brief_is_a_finding_not_a_pass(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-27",
+                    "strategy_version": SV_A})
+        result = self_audit.check_stamped_strategy_version([MARKER])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["detail"]["no_brief_for_night"], ["p1"])
+
+    def test_skip_before_marker_and_before_any_row_carries_field(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-23"})
+        result = self_audit.check_stamped_strategy_version([_brief("20261023", SV_A)])
+        self.assertEqual(result["status"], "SKIP")
+
+    def test_findings_are_counted(self):
+        self._rows({"prediction_id": "p1", "cycle_date": "2026-10-27"},
+                   {"prediction_id": "p2", "cycle_date": "2026-10-27",
+                    "strategy_version": SV_B})
+        entries = [MARKER, _brief("20261027", SV_A)]
+        result = self_audit.check_stamped_strategy_version(entries)
+        self.assertEqual(self_audit._finding_count(result), 2)
 
 
 if __name__ == "__main__":

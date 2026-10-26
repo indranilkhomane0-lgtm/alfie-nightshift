@@ -79,6 +79,34 @@ def grade(direction: str, entry: float, settle: float):
     return ("NO_CALL", move)
 
 
+def outcome_payload(r: dict) -> dict:
+    """LABELED_OUTCOME payload for a just-graded row.
+
+    stamped_strategy_version is the row's own strategy_version -- the
+    version that MADE the call, written by stamp_prediction.py at stamp
+    time -- copied only when the row has it. A row stamped before that
+    field existed gets no key at all: absent, not inferred, not backfilled.
+    It cannot travel as "strategy_version": publish_chain.append_entry()
+    overwrites that key with the grading-time value, which is exactly the
+    misattribution this field exists to correct."""
+    payload = {
+        "type": "LABELED_OUTCOME",
+        "prediction_id": r["prediction_id"],
+        "asset": r["asset"],
+        "config_id": r.get("config_id"),
+        "direction": r["direction"],
+        "entry_price": r["entry_price"],
+        "settle_close": r["settle_close"],
+        "return_pct": r["return_pct"],
+        "outcome": r["outcome"],
+        "cycle_date": r["cycle_date"],
+        "settle_date": r["settle_date"],
+    }
+    if "strategy_version" in r:
+        payload["stamped_strategy_version"] = r["strategy_version"]
+    return payload
+
+
 def main() -> int:
     if not PRED_PATH.exists():
         print("no predictions file yet — nothing to label")
@@ -120,19 +148,7 @@ def main() -> int:
         r["labeled_at_utc"] = datetime.now(timezone.utc).isoformat()
         r["status"] = "LABELED"
 
-        append_entry({
-            "type": "LABELED_OUTCOME",
-            "prediction_id": r["prediction_id"],
-            "asset": r["asset"],
-            "config_id": r.get("config_id"),
-            "direction": r["direction"],
-            "entry_price": r["entry_price"],
-            "settle_close": r["settle_close"],
-            "return_pct": r["return_pct"],
-            "outcome": outcome,
-            "cycle_date": r["cycle_date"],
-            "settle_date": r["settle_date"],
-        })
+        append_entry(outcome_payload(r))
         labeled += 1
         print(f"labeled {r['prediction_id']}: {r['direction']} "
               f"{r['entry_price']} -> {r['settle_close']} = {outcome} ({r['return_pct']:+.2f}%)")

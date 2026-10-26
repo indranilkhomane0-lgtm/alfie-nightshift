@@ -43,10 +43,36 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from core.bar_calendar import is_utc_daily_bar_complete
 from nightshift.archive_ohlcv import archive_closed_bars
+from nightshift.strategy_version import compute_strategy_version
 
 HOLD_DAYS = 7
 PRED_PATH = ROOT / "reports" / "predictions.jsonl"
 log = logging.getLogger(__name__)
+
+# strategy_version of the code that made this process's calls, computed
+# once on first stamp and reused for every row this process writes, so a
+# file edited mid-run can't split one night's calls across two versions.
+# Recorded on the row so core/verify_chain.py can attribute a graded call
+# to the version that MADE it -- before this field, the only version on
+# record was LABELED_OUTCOME's, which publish_chain.py stamps at grading
+# time, a hold period later. Hashes file bytes, not a git sha, so it is
+# correct on a dirty working tree too.
+_stamp_strategy_version = None
+
+
+def _strategy_version_for_stamp() -> str:
+    global _stamp_strategy_version
+    if _stamp_strategy_version is None:
+        try:
+            _stamp_strategy_version = compute_strategy_version()
+        except Exception as e:
+            # "unknown", not a guess and not a lost stamp -- same convention
+            # publish_chain.py uses for code_version. self_audit.py's
+            # stamped_strategy_version check flags it against that night's
+            # NIGHTLY_BRIEF.
+            log.warning("could not compute strategy_version for stamp: %s", e)
+            _stamp_strategy_version = "unknown"
+    return _stamp_strategy_version
 
 
 def _rsi(closes, period=14):
@@ -185,6 +211,7 @@ def stamp(cfg: dict, ohlcv, source: str | None = None,
         "context_end": closed.index[-1].isoformat() if len(closed) else None,
         "context_n_bars": len(closed),
         "context_fetched_at": fetched_at,
+        "strategy_version": _strategy_version_for_stamp(),
         "status": "OPEN",
     }
     PRED_PATH.parent.mkdir(parents=True, exist_ok=True)

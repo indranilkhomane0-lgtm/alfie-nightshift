@@ -1094,6 +1094,102 @@ def check_system_timezone() -> dict:
     return finding
 
 
+# ── Check 11: stamped strategy_version ──────────────────────────────────
+
+PREDICTIONS_PATH = ROOT / "reports" / "predictions.jsonl"
+# data key of the METHODOLOGY_CHANGE introducing stamp-time attribution.
+# Keep in sync with core/verify_chain.py's ATTRIBUTION_MARKER_KEY.
+ATTRIBUTION_MARKER_KEY = "stamp_time_attribution"
+
+
+def _brief_strategy_versions(entries: list[dict]) -> tuple[dict, dict]:
+    """cycle_date -> set of strategy_version values on that night's
+    NIGHTLY_BRIEF entries, and cycle_date -> index of the first such
+    entry. brief_YYYYMMDD.txt is named from the same in-process date
+    stamp_prediction.py writes as cycle_date."""
+    versions, first_idx = {}, {}
+    for i, e in enumerate(entries):
+        p = e.get("payload", {})
+        if p.get("type") != "NIGHTLY_BRIEF":
+            continue
+        m = re.search(r"(\d{4})(\d{2})(\d{2})", p.get("brief_file", ""))
+        if not m:
+            continue
+        d = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        versions.setdefault(d, set()).add(p.get("strategy_version"))
+        first_idx.setdefault(d, i)
+    return versions, first_idx
+
+
+def check_stamped_strategy_version(entries: list[dict]) -> dict:
+    """Every predictions.jsonl row stamped on or after the cutoff must
+    carry strategy_version, and it must equal that night's NIGHTLY_BRIEF
+    strategy_version. That brief is chained by the same run minutes
+    after stamping, by a different process computing the same hash
+    independently -- the two can only disagree if the stamp path stopped
+    writing the field, wrote the wrong value, or the frozen surface moved
+    mid-run. Built after grading-time misattribution sat in every
+    per-freeze slice for six weeks with nothing to catch it.
+
+    Cutoff, derived, not hardcoded: a row is subject if it carries the
+    field, or if its night's first NIGHTLY_BRIEF was chained after the
+    ATTRIBUTION_MARKER_KEY METHODOLOGY_CHANGE (which catches the stamp
+    path silently dropping the field altogether -- a first-row-carrying
+    cutoff alone would SKIP forever in that case). A subject row whose
+    night has no NIGHTLY_BRIEF to compare against is its own finding:
+    the claim is unverifiable, not passed. Runs before the night's own
+    cycle in run_and_publish.sh, so tonight's rows are never judged
+    against a brief not yet chained."""
+    finding = {
+        "name": "stamped_strategy_version", "status": "PASS",
+        "detail": {"missing_after_cutoff": [], "version_mismatches": [],
+                   "no_brief_for_night": []},
+    }
+    if not PREDICTIONS_PATH.exists():
+        finding["status"] = "SKIP"
+        finding["detail"]["reason"] = "no predictions file"
+        return finding
+    rows = [json.loads(l) for l in PREDICTIONS_PATH.read_text().splitlines() if l.strip()]
+    marker_idx = next(
+        (i for i, e in enumerate(entries)
+         if e.get("payload", {}).get("type") == "METHODOLOGY_CHANGE"
+         and ATTRIBUTION_MARKER_KEY in (e.get("payload", {}).get("data") or {})),
+        None)
+    versions, first_idx = _brief_strategy_versions(entries)
+    finding["detail"]["marker_index"] = marker_idx
+
+    for r in rows:
+        d = r.get("cycle_date")
+        has_field = "strategy_version" in r
+        after_marker = (marker_idx is not None and d in first_idx
+                        and first_idx[d] > marker_idx)
+        if not has_field and not after_marker:
+            continue  # stamped before the field existed -- exempt, not inferred
+        pid = r.get("prediction_id")
+        if not has_field:
+            finding["detail"]["missing_after_cutoff"].append(pid)
+            continue
+        if d not in versions:
+            finding["detail"]["no_brief_for_night"].append(pid)
+            continue
+        if versions[d] != {r["strategy_version"]}:
+            finding["detail"]["version_mismatches"].append({
+                "prediction_id": pid, "row": r["strategy_version"],
+                "brief": sorted(str(v) for v in versions[d]),
+            })
+
+    if marker_idx is None and not any("strategy_version" in r for r in rows):
+        finding["status"] = "SKIP"
+        finding["detail"]["reason"] = (
+            "no row carries strategy_version and the introducing "
+            "METHODOLOGY_CHANGE is not on the chain yet")
+        return finding
+    d = finding["detail"]
+    if d["missing_after_cutoff"] or d["version_mismatches"] or d["no_brief_for_night"]:
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1117,6 +1213,7 @@ def main() -> int:
             _run_check(check_doc_reference_integrity),
             _run_check(check_test_isolation_guard),
             _run_check(check_system_timezone),
+            _run_check(check_stamped_strategy_version, entries),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1194,6 +1291,7 @@ FINDING_KEYS = {
     "decreases",
     "missing_paths", "broken_verify_commands", "constant_mismatches",
     "missing", "bypassed", "changed",
+    "version_mismatches", "no_brief_for_night",
 }
 
 

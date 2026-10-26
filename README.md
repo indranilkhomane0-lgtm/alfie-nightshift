@@ -56,6 +56,18 @@ The chain currently holds four entry types:
   manually via `publish_chain.py --methodology "..."` at the moment the
   change is made
 
+### Which strategy version made a call
+
+core/verify_chain.py prints per-strategy-version results two ways. The
+grading-time slices key on the strategy_version on each LABELED_OUTCOME,
+which is the version in force when the call was *graded*, a hold period
+after it was made. They are known to be misattributed. They are still
+printed, labelled as such, so the defect stays visible. The stamp-time
+section keys on `stamped_strategy_version`, the version recorded on the
+prediction row when it was made, and is the correct attribution. Calls
+stamped before that field existed go to an explicit "unattributable"
+bucket. No version is inferred or backfilled for them.
+
 ## Bitcoin anchoring
 
 Since 2026-07-28, each new chain entry's hash is also timestamped to the

@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT))
 from verify_chain import (  # noqa: E402
     compute_stats, FROZEN_CODE_VERSION, FROZEN_STRATEGY_VERSION,
+    FROZEN_STRATEGY_VERSION_V5, ATTRIBUTION_MARKER_KEY,
     ANCHORING_START, OTS_MAGIC, PENDING_ATTESTATION_TAG,
     CONFIRMED_ATTESTATION_TAG, PENDING_GRACE_HOURS,
 )
@@ -78,7 +79,8 @@ def _write_chain(payloads, published_at_utc=PRE_ANCHORING_DATE) -> Path:
 
 
 def _outcome(asset, direction, cycle_date, settle_date, outcome, return_pct,
-             code_version=OTHER_CODE_VERSION, strategy_version="__unset__"):
+             code_version=OTHER_CODE_VERSION, strategy_version="__unset__",
+             stamped_strategy_version="__unset__"):
     payload = {
         "type": "LABELED_OUTCOME",
         "asset": asset, "direction": direction, "cycle_date": cycle_date,
@@ -91,6 +93,8 @@ def _outcome(asset, direction, cycle_date, settle_date, outcome, return_pct,
     # JSON null, which is a different thing from the key being absent.
     if strategy_version != "__unset__":
         payload["strategy_version"] = strategy_version
+    if stamped_strategy_version != "__unset__":
+        payload["stamped_strategy_version"] = stamped_strategy_version
     return payload
 
 
@@ -450,6 +454,92 @@ class ReceiptVerificationTest(unittest.TestCase):
                          "every real receipt should carry the original pending-commitment tag")
         self.assertTrue(any(CONFIRMED_ATTESTATION_TAG in b for b in bodies),
                          "at least one real receipt in this repo should be Bitcoin-confirmed by now")
+
+
+class StampTimeAttributionTest(unittest.TestCase):
+    """Per-version slices must be attributable to the version that MADE
+    a call (stamped_strategy_version), not the one in force when it was
+    graded (strategy_version, stamped by publish_chain at grading time).
+    The grading-time slices stay -- relabelled, not dropped."""
+
+    def test_stamp_time_slice_keys_on_stamped_version_not_grading_version(self):
+        payloads = [
+            # Made under V5, graded after the move to the current version.
+            _outcome("BTC/USDT", "long", "2026-10-30", "2026-11-06", "LOSS", -3.0,
+                     strategy_version=FROZEN_STRATEGY_VERSION,
+                     stamped_strategy_version=FROZEN_STRATEGY_VERSION_V5),
+            _outcome("ETH/USDT", "long", "2026-10-31", "2026-11-07", "WIN", 4.0,
+                     strategy_version=FROZEN_STRATEGY_VERSION,
+                     stamped_strategy_version=FROZEN_STRATEGY_VERSION),
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        st = stats["stamp_time_return_stats"]
+        self.assertEqual(st[FROZEN_STRATEGY_VERSION_V5]["loss"][2], 1)
+        self.assertEqual(st[FROZEN_STRATEGY_VERSION_V5]["win"][2], 0)
+        self.assertEqual(st[FROZEN_STRATEGY_VERSION]["win"][2], 1)
+        self.assertEqual(st[FROZEN_STRATEGY_VERSION]["loss"][2], 0)
+        # Grading-time slice still counts both under the current version --
+        # kept, and visibly different from the stamp-time one.
+        g = stats["frozen_strategy_version_return_stats"]
+        self.assertEqual((g["win"][2], g["loss"][2]), (1, 1))
+
+    def test_absent_stamped_version_is_unattributable_not_inferred(self):
+        payloads = [
+            _outcome("BTC/USDT", "long", "2026-10-02", "2026-10-09", "LOSS", -2.0,
+                     strategy_version=FROZEN_STRATEGY_VERSION_V5),
+            _outcome("SOL/USDT", "long", "2026-10-03", "2026-10-10", "WIN", 1.0),
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        ua = stats["unattributable_return_stats"]
+        self.assertEqual((ua["win"][2], ua["loss"][2]), (1, 1))
+        for sv, bucket in stats["stamp_time_return_stats"].items():
+            self.assertEqual(bucket["win"][2] + bucket["loss"][2], 0, sv)
+        self.assertIsNone(stats["first_stamped_cycle_date"])
+
+    def test_cutoff_label_comes_from_first_graded_cycle_carrying_field(self):
+        payloads = [
+            _outcome("BTC/USDT", "long", "2026-10-23", "2026-10-30", "LOSS", -1.0),
+            _outcome("ETH/USDT", "long", "2026-11-02", "2026-11-09", "WIN", 2.0,
+                     stamped_strategy_version=FROZEN_STRATEGY_VERSION),
+            _outcome("SOL/USDT", "long", "2026-10-28", "2026-11-04", "WIN", 2.0,
+                     stamped_strategy_version=FROZEN_STRATEGY_VERSION),
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        self.assertEqual(stats["first_stamped_cycle_date"], "2026-10-28")
+
+    def test_unknown_or_untracked_stamped_version_gets_its_own_bucket(self):
+        payloads = [
+            _outcome("BTC/USDT", "long", "2026-11-01", "2026-11-08", "WIN", 3.0,
+                     stamped_strategy_version="unknown"),
+            _outcome("ETH/USDT", "long", "2026-11-01", "2026-11-08", "LOSS", -1.0,
+                     stamped_strategy_version=OTHER_STRATEGY_VERSION),
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        ut = stats["untracked_stamped_return_stats"]
+        self.assertEqual((ut["win"][2], ut["loss"][2]), (1, 1))
+        ua = stats["unattributable_return_stats"]
+        self.assertEqual((ua["win"][2], ua["loss"][2]), (0, 0))
+
+    def test_conflicting_stamped_version_under_one_call_is_counted(self):
+        payloads = [
+            _outcome("BTC/USDT", "long", "2026-11-01", "2026-11-08", "WIN", 3.0,
+                     stamped_strategy_version=FROZEN_STRATEGY_VERSION),
+            _outcome("BTC/USDT", "long", "2026-11-01", "2026-11-08", "WIN", 3.0,
+                     stamped_strategy_version=OTHER_STRATEGY_VERSION),
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        self.assertEqual(stats["stamp_version_conflicts"], 1)
+
+    def test_marker_entry_found_by_data_key_with_1_based_index(self):
+        payloads = [
+            _outcome("BTC/USDT", "long", "2026-10-02", "2026-10-09", "LOSS", -2.0),
+            {"type": "METHODOLOGY_CHANGE", "description": "unrelated", "data": {"x": 1}},
+            {"type": "METHODOLOGY_CHANGE", "description": "attribution",
+             "data": {ATTRIBUTION_MARKER_KEY: {"field": "stamped_strategy_version"}}},
+        ]
+        stats = compute_stats(_write_chain(payloads))
+        self.assertEqual(stats["attribution_marker_entry"], 3)
+        self.assertIsNone(compute_stats(_write_chain(payloads[:2]))["attribution_marker_entry"])
 
 
 if __name__ == "__main__":
