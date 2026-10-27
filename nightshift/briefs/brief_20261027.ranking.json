@@ -1,0 +1,30 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_mean_rev_372c078e9e3a",
+        "gt_score": 66.69032342631456
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_mean_rev_372c078e9e3a",
+        "model_active": true,
+        "predicted_decay": -2.1910982695086023,
+        "rank_score": -0.466772432697944,
+        "survival_prob": 0.21638042211457742,
+        "uncertainty": 0.015478103939352185
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5517894736842106,
+      "cv_r2": -2.3673557440724187,
+      "n_train": 172
+    },
+    "used_for_published_order": false
+  }
+}

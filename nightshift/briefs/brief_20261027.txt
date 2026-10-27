@@ -1,0 +1,39 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261027  ·  2026-10-27 00:01 UTC  ·  14s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=27  trans_p=4%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=172, cross-validated AUC=0.552, R²=-2.367.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 31 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+
+  [1] BTC/USDT_mean_rev_372c078e9e3a
+      WFO  Sharpe=4.50  Sortino=377.83  MaxDD=-0.1%
+      GT=66.690  stability_σ=n/a
+      MC   G1=4.50 G2=4.27 G3=4.35 G4=4.50 G5_sens=0.60
+      RANK GT-Score=66.690  (published order)  scored=BTC/USDT_mean_rev_372c078e9e3a
+      Params: {"rsi_low": 26, "rsi_high": 80, "rsi_period": 10, "max_hold_days": 10}
+
+── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────
+  shadow #1  BTC/USDT_mean_rev_372c078e9e3a  (published #1)
+      [META] P(survive)=0.22  pred_decay=-2.19  uncertainty=±0.015  rank=-0.4668  (regime_n=0)
+  Shadow #1 is published #1: yes
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
