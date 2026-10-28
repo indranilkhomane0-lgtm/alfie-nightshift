@@ -1,0 +1,57 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261028  ·  2026-10-28 00:01 UTC  ·  24s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  1 — HIGH-VOL BULL  P=100%  days_in=8  trans_p=5%
+  Size mult: 75%  Vol target: 10% ann
+  Eligible: ['momentum', 'mean_rev', 'relative']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=172, cross-validated AUC=0.552, R²=-2.367.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 31 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+
+  [1] BTC/USDT_relative_6e3f91c8ef61
+      WFO  Sharpe=3.19  Sortino=0.00  MaxDD=-0.1%
+      GT=9.732  stability_σ=n/a
+      MC   G1=3.19 G2=2.91 G3=3.07 G4=3.19 G5_sens=0.69
+      RANK GT-Score=9.732  (published order)  scored=BTC/USDT_relative_6e3f91c8ef61
+      Params: {"lookback": 25, "entry_z": 1.6780051272006675, "exit_z": 0.6579712404807705, "max_hold_days": 5}
+
+  [2] BTC/USDT_relative_bbf22a5c8866
+      WFO  Sharpe=3.19  Sortino=0.00  MaxDD=-0.1%
+      GT=9.732  stability_σ=n/a
+      MC   G1=3.19 G2=2.90 G3=3.07 G4=3.19 G5_sens=0.66
+      RANK GT-Score=9.732  (published order)  scored=BTC/USDT_relative_bbf22a5c8866
+      Params: {"lookback": 25, "entry_z": 1.7642924698691016, "exit_z": 0.163308430214761, "max_hold_days": 5}
+
+  [3] ETH/USDT_relative_06293ded3b50
+      WFO  Sharpe=4.63  Sortino=6.75  MaxDD=-4.0%
+      GT=2.984  stability_σ=n/a
+      MC   G1=4.63 G2=4.39 G3=3.83 G4=4.63 G5_sens=0.45
+      RANK GT-Score=2.984  (published order)  scored=ETH/USDT_relative_06293ded3b50
+      Params: {"lookback": 20, "entry_z": 2.2254625464826776, "exit_z": 0.2942541294343189, "max_hold_days": 8}
+
+── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────
+  shadow #1  BTC/USDT_momentum_20fb7fff8e5a  (published below top 3)
+      [META] P(survive)=0.24  pred_decay=-1.05  uncertainty=±0.014  rank=-0.2497  (regime_n=0)
+  shadow #2  BTC/USDT_relative_bbf22a5c8866  (published #2)
+      [META] P(survive)=0.20  pred_decay=-1.78  uncertainty=±0.023  rank=-0.3481  (regime_n=0)
+  shadow #3  BTC/USDT_relative_6e3f91c8ef61  (published #1)
+      [META] P(survive)=0.20  pred_decay=-1.83  uncertainty=±0.034  rank=-0.3544  (regime_n=0)
+  Shadow #1 is published #1: no
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
