@@ -432,6 +432,21 @@ the UTC close and the local date has already rolled over to the UTC date.
   re-checks every brief from the introducing METHODOLOGY_CHANGE on: the
   margin was met, the UTC date at start is the brief's date, and every
   asset's last closed bar is the night before.
+- **Installing the schedule.** The plists in launchd/ in this repo are
+  the source of truth. macOS loads ~/Library/LaunchAgents/ at login, so
+  they are installed there as copies and loaded from there. After
+  editing either, install and reload both:
+
+      cp -p launchd/*.plist ~/Library/LaunchAgents/
+      for job in com.alfie.nightshift com.alfie.nightshift.watchdog; do
+        launchctl bootout gui/$(id -u)/$job
+        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$job.plist
+      done
+
+  Self-audit check 14 fails if any of
+  these disagree: the repo plists, the installed copies, and the
+  calendar intervals of the loaded jobs. It also fails if any other
+  com.alfie.* file sits in LaunchAgents.
 
 ## Honest limitations
 

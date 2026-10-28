@@ -1379,6 +1379,99 @@ def check_run_instant_and_input_window(entries: list[dict]) -> dict:
     return finding
 
 
+# ── Check 14: launchd schedule agreement ────────────────────────────────
+
+# The repo's launchd/ is the source; ~/Library/LaunchAgents/ holds the
+# installed copies macOS loads at login; launchctl holds what is loaded
+# now. Until 2026-10-28 the jobs had been bootstrapped by hand from the
+# repo while LaunchAgents still held July copies under the same Labels
+# (05:30/05:50/06:10, watchdog 06:30) -- a reboot would have silently
+# reverted the schedule.
+LAUNCHD_REPO_DIR = ROOT / "launchd"
+LAUNCH_AGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
+_LAUNCHD_LABEL_PREFIX = "com.alfie."
+
+
+def _calendar_intervals(value) -> list:
+    """StartCalendarInterval (a dict or a list of dicts) as a sorted list
+    of sorted (key, value) tuples, so order in the plist doesn't matter."""
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    return sorted(tuple(sorted((str(k), int(v)) for k, v in d.items())) for d in items)
+
+
+def _loaded_calendar_intervals(label: str) -> list | None:
+    """Calendar intervals of the job launchd has loaded under label, read
+    from `launchctl print gui/<uid>/<label>`. None if not loaded or
+    launchctl is unavailable."""
+    import os
+    try:
+        out = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+                             capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    if out.returncode != 0:
+        return None
+    blocks = re.findall(
+        r"stream = com\.apple\.launchd\.calendarinterval.*?descriptor = \{(.*?)\}",
+        out.stdout, flags=re.S)
+    return _calendar_intervals(
+        [{k: int(v) for k, v in re.findall(r'"(\w+)" => (\d+)', b)} for b in blocks])
+
+
+def check_launchd_schedule() -> dict:
+    """For every job plist in the repo's launchd/: the copy installed in
+    ~/Library/LaunchAgents/ and the job launchd has loaded must carry the
+    same StartCalendarInterval as the repo, and the installed copy must
+    otherwise equal the repo's. Also flags any other com.alfie.* file in
+    LaunchAgents (a leftover .bak, a renamed job). FAIL carries the diff.
+    SKIP off macOS. Same shape as check_system_timezone: a schedule that
+    quietly stopped meaning what the repo says is otherwise found only
+    after a night goes missing."""
+    import plistlib
+    finding = {"name": "launchd_schedule", "status": "PASS",
+               "detail": {"schedule_divergences": [], "installed_copy_differs": [],
+                          "not_installed": [], "not_loaded": [], "unexpected_files": []}}
+    if not LAUNCH_AGENTS_DIR.is_dir() or shutil.which("launchctl") is None:
+        finding["status"] = "SKIP"
+        finding["detail"]["reason"] = "no ~/Library/LaunchAgents or launchctl (not macOS)"
+        return finding
+    d = finding["detail"]
+    repo_files = sorted(LAUNCHD_REPO_DIR.glob("*.plist"))
+    for repo_path in repo_files:
+        repo = plistlib.loads(repo_path.read_bytes())
+        label = repo.get("Label", repo_path.stem)
+        want = _calendar_intervals(repo.get("StartCalendarInterval"))
+        row = {"label": label, "repo": want}
+        installed_path = LAUNCH_AGENTS_DIR / repo_path.name
+        if not installed_path.exists():
+            d["not_installed"].append(label)
+            installed = None
+        else:
+            installed = plistlib.loads(installed_path.read_bytes())
+            row["installed"] = _calendar_intervals(installed.get("StartCalendarInterval"))
+            differing = sorted(k for k in set(repo) | set(installed)
+                               if k != "StartCalendarInterval" and repo.get(k) != installed.get(k))
+            if differing:
+                d["installed_copy_differs"].append({"label": label, "keys": differing})
+        loaded = _loaded_calendar_intervals(label)
+        if loaded is None:
+            d["not_loaded"].append(label)
+        else:
+            row["loaded"] = loaded
+        if any(row.get(k, want) != want for k in ("installed", "loaded")):
+            d["schedule_divergences"].append(row)
+    repo_names = {p.name for p in repo_files}
+    d["unexpected_files"] = sorted(
+        p.name for p in LAUNCH_AGENTS_DIR.glob(_LAUNCHD_LABEL_PREFIX + "*")
+        if p.name not in repo_names)
+    if any(d[k] for k in ("schedule_divergences", "installed_copy_differs",
+                          "not_installed", "not_loaded", "unexpected_files")):
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1405,6 +1498,7 @@ def main() -> int:
             _run_check(check_stamped_strategy_version, entries),
             _run_check(check_published_ranking_order, entries),
             _run_check(check_run_instant_and_input_window, entries),
+            _run_check(check_launchd_schedule),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1487,6 +1581,8 @@ FINDING_KEYS = {
     "meta_lines_unlabelled", "briefs_unverifiable",
     "missing_run_record", "missing_input_window", "margin_violations",
     "utc_date_mismatches", "window_mismatches",
+    "schedule_divergences", "installed_copy_differs", "not_installed",
+    "not_loaded", "unexpected_files",
 }
 
 
