@@ -404,6 +404,35 @@ its calls with what was stamped. It covers less than that sounds like:
   per asset, so it depended on stamp order and could compare two
   different configs.
 
+## When a night runs, and the window it reads
+
+The cycle names its night from the machine's local date (cycle_id,
+cycle_date, the archive key). It cuts closed bars by the UTC date, and a
+daily bar closes at 00:00 UTC. The two agree only if the run starts after
+the UTC close and the local date has already rolled over to the UTC date.
+
+- **Schedule.** launchd fires at 05:35, 05:50, 06:10, 07:00 and 08:00 IST.
+  The first slot was 05:30 until 2026-10-28, and 05:30 IST is 00:00:00 UTC
+  exactly. All margin past the close came from startup time, which got as
+  low as 6 seconds.
+- **Preflight.** run_nightshift.py refuses to build a cycle unless it is
+  at least 30 seconds past 00:00 UTC and the local date equals the UTC
+  date. It exits with code 3 before any side effect. run_and_publish.sh
+  then sends an ntfy alert and publishes no PIPELINE_FAILURE, because that
+  entry would be keyed to a UTC date that has already settled. The next
+  fire retries.
+- **On the record.** Each NIGHTLY_BRIEF carries two fields:
+  - `payload.run` records the start instant, seconds past the UTC close,
+    the UTC and local dates, the local timezone, and cycle_id.
+  - `payload.input_window` records each asset's last closed bar and bar
+    count, read from the OHLCV archive (`ohlcv.csv.gz` in reports/archive/)
+    rather than from the cycle.
+
+  A stale archive therefore shows up as a mismatch. Self-audit check 13
+  re-checks every brief from the introducing METHODOLOGY_CHANGE on: the
+  margin was met, the UTC date at start is the brief's date, and every
+  asset's last closed bar is the night before.
+
 ## Honest limitations
 
 - Paper only. No live capital has ever been deployed. Nothing here is a

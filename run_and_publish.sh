@@ -54,7 +54,9 @@ push_or_defer() {
 }
 
 # B1d -- SINGLE-INSTANCE LOCK.
-# launchd fires this at 05:30, 05:50, 06:10, 07:00, and 08:00 local time.
+# launchd fires this at 05:35, 05:50, 06:10, 07:00, and 08:00 local time.
+# (05:35, not 05:30: 05:30 IST is 00:00:00 UTC exactly, the daily close --
+# zero margin from the schedule itself. See run_nightshift.py's preflight.)
 # The first three stayed close together (20min) for the original diagnosed
 # cause -- Wi-Fi not yet associated a few minutes after wake. The last two,
 # added 2026-10-23, exist for a different, now-repeatedly-observed failure
@@ -166,7 +168,30 @@ CYCLE_DATE="$(date -u +%Y%m%d)"
 
 # run the cycle
 "$PY" run_nightshift.py >> "$LOG" 2>&1
-if [ $? -ne 0 ]; then
+RC=$?
+
+# PREFLIGHT REFUSAL (exit 3) -- run_nightshift.py refused to build the
+# cycle: fewer than 30s past the UTC daily close, or the local date not yet
+# the UTC date. Nothing ran, nothing was written. No PIPELINE_FAILURE: it
+# would be keyed to $CYCLE_DATE, a UTC date already settled. Alert loudly
+# and leave the night to the next launchd fire.
+if [ $RC -eq 3 ]; then
+  echo "PREFLIGHT REFUSED -- no cycle, no PIPELINE_FAILURE; next fire retries" >> "$LOG"
+  if [ $DRY -eq 0 ]; then
+    "$PY" - "$(grep 'PREFLIGHT REFUSED:' "$LOG" | tail -1)" >> "$LOG" 2>&1 <<'PYEOF'
+import sys
+sys.path.insert(0, "nightshift")
+import watchdog
+ok, detail = watchdog.notify_offmachine(
+    "Night Shift: run refused before the UTC close",
+    (sys.argv[1] or "PREFLIGHT REFUSED") + " -- no cycle ran; the next launchd fire retries.")
+print(f"ntfy {'delivered' if ok else 'FAILED'} -- {detail}")
+PYEOF
+  fi
+  exit 3
+fi
+
+if [ $RC -ne 0 ]; then
   echo "CYCLE FAILED -- publishing honest failure entry" >> "$LOG"
   if [ $DRY -eq 0 ]; then
     if grep -qF "\"cycle_date\": \"$CYCLE_DATE\"" reports/chain.jsonl 2>/dev/null; then

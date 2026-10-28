@@ -1303,6 +1303,82 @@ def check_published_ranking_order(entries: list[dict]) -> dict:
     return finding
 
 
+# ── Check 13: run instant and input window ──────────────────────────────
+
+# data key of the METHODOLOGY_CHANGE that added payload["run"] and
+# payload["input_window"] to NIGHTLY_BRIEF and the run-instant preflight.
+INPUT_WINDOW_MARKER_KEY = "input_window_recording"
+# Keep in sync with run_nightshift.py's MIN_SECONDS_AFTER_UTC_CLOSE.
+MIN_SECONDS_AFTER_UTC_CLOSE = 30
+
+
+def check_run_instant_and_input_window(entries: list[dict]) -> dict:
+    """Every NIGHTLY_BRIEF chained after the INPUT_WINDOW_MARKER_KEY
+    METHODOLOGY_CHANGE must show, from its own payload: the run started
+    at least MIN_SECONDS_AFTER_UTC_CLOSE past the UTC daily close; the
+    UTC date at start is the brief's date; and every asset's archived
+    last closed bar is the brief's date minus one. The expected bar date
+    is recomputed here from brief_file, not read from input_window's own
+    matches flag. run_nightshift.py's preflight refuses a run that would
+    fail the first two; this is the after-the-fact backstop, and the only
+    check on the third (a stale archive). Briefs before the marker carry
+    neither field and are not findings."""
+    from datetime import date, timedelta
+    from nightshift.config import ASSETS
+    finding = {"name": "run_instant_and_input_window", "status": "PASS",
+               "detail": {"missing_run_record": [], "missing_input_window": [],
+                          "margin_violations": [], "utc_date_mismatches": [],
+                          "window_mismatches": []}}
+    marker_idx = next(
+        (i for i, e in enumerate(entries)
+         if e.get("payload", {}).get("type") == "METHODOLOGY_CHANGE"
+         and INPUT_WINDOW_MARKER_KEY in (e.get("payload", {}).get("data") or {})),
+        None)
+    finding["detail"]["marker_index"] = marker_idx
+    if marker_idx is None:
+        finding["status"] = "SKIP"
+        finding["detail"]["reason"] = "input-window METHODOLOGY_CHANGE not on the chain yet"
+        return finding
+    d = finding["detail"]
+    checked = 0
+    for e in entries[marker_idx + 1:]:
+        p = e.get("payload", {})
+        if p.get("type") != "NIGHTLY_BRIEF":
+            continue
+        name = p.get("brief_file", "")
+        m = re.search(r"(\d{4})(\d{2})(\d{2})", name)
+        if not m:
+            continue
+        checked += 1
+        night = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        expected = (night - timedelta(days=1)).isoformat()
+        run = p.get("run")
+        if not isinstance(run, dict):
+            d["missing_run_record"].append(name)
+        else:
+            margin = run.get("seconds_after_utc_close")
+            if not isinstance(margin, (int, float)) or margin < MIN_SECONDS_AFTER_UTC_CLOSE:
+                d["margin_violations"].append({"brief": name, "seconds_after_utc_close": margin})
+            if run.get("utc_date_at_start") != night.isoformat():
+                d["utc_date_mismatches"].append({"brief": name,
+                                                 "utc_date_at_start": run.get("utc_date_at_start")})
+        window = p.get("input_window")
+        if not isinstance(window, dict):
+            d["missing_input_window"].append(name)
+            continue
+        assets = window.get("assets") or {}
+        for a in ASSETS:
+            last = (assets.get(a) or {}).get("last_closed_bar")
+            if last != expected:
+                d["window_mismatches"].append({"brief": name, "asset": a,
+                                               "last_closed_bar": last, "expected": expected})
+    d["briefs_checked"] = checked
+    if any(d[k] for k in ("missing_run_record", "missing_input_window", "margin_violations",
+                          "utc_date_mismatches", "window_mismatches")):
+        finding["status"] = "FAIL"
+    return finding
+
+
 # ── main ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -1328,6 +1404,7 @@ def main() -> int:
             _run_check(check_system_timezone),
             _run_check(check_stamped_strategy_version, entries),
             _run_check(check_published_ranking_order, entries),
+            _run_check(check_run_instant_and_input_window, entries),
         ]
 
         overall = "FAIL" if any(c["status"] in ("FAIL", "ERROR") for c in checks) else "PASS"
@@ -1408,6 +1485,8 @@ FINDING_KEYS = {
     "version_mismatches", "no_brief_for_night",
     "ranking_identity_mismatches", "ranking_order_violations",
     "meta_lines_unlabelled", "briefs_unverifiable",
+    "missing_run_record", "missing_input_window", "margin_violations",
+    "utc_date_mismatches", "window_mismatches",
 }
 
 

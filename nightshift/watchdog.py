@@ -127,7 +127,7 @@ CREDENTIAL_WARN_DAYS = 10
 # since the last entry is immune to both: it doesn't care what
 # timezone anything is in, or exactly when the watchdog itself
 # happened to run, only how much real time has elapsed. 30h gives
-# the full 05:30-08:00 (local, whatever local is) retry window plus a
+# the full 05:35-08:00 (local, whatever local is) retry window plus a
 # full day's slack for scheduling jitter, while still catching a
 # genuinely missed night within about a day.
 MISSED_THRESHOLD_HOURS = 30

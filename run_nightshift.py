@@ -40,7 +40,7 @@ if Path(sys.prefix).resolve() != _VENV_DIR.resolve():
     )
     raise SystemExit(1)
 
-import argparse, json, logging, os
+import argparse, json, logging, os, time
 from datetime import date, datetime, timezone
 
 # Sidecar for publish_chain.py --failed: written the instant cmd_full()'s
@@ -54,6 +54,76 @@ from datetime import date, datetime, timezone
 # Lives under nightshift/logs/, already gitignored -- never committed,
 # never meant to outlive the run that wrote it.
 FAILURE_SIDECAR = Path("nightshift/logs/last_pipeline_failure.json")
+
+# ── Run-instant preflight ─────────────────────────────────────────────
+# The cycle fixes its date (cycle_id, cycle_date, the archive key) from the
+# LOCAL date.today() when NightShiftCycle is built, and its closed-bar cut
+# from the UTC date moments later (core/bar_calendar.py). Those agree only
+# when the run starts after the UTC daily close and the local date has
+# already rolled to the UTC date. 05:30 IST is 00:00:00 UTC exactly, so
+# the schedule alone gave zero margin; every night's margin came from
+# startup time (minimum 6s observed). A run that starts before the close
+# builds night D+1 on a window ending D-1 -- see the METHODOLOGY_CHANGE
+# carrying INPUT_WINDOW_MARKER_KEY in nightshift/self_audit.py.
+#
+# Refusal exits PREFLIGHT_EXIT before any side effect (no DB, no stamp, no
+# brief, no failure sidecar). run_and_publish.sh alerts and publishes no
+# PIPELINE_FAILURE -- that entry would be keyed to a UTC date already
+# settled. The next fire retries. Keep MIN_SECONDS_AFTER_UTC_CLOSE in sync
+# with nightshift/self_audit.py, which re-checks it from the chain.
+PREFLIGHT_EXIT = 3
+MIN_SECONDS_AFTER_UTC_CLOSE = 30
+
+
+def _local_tz_name() -> str:
+    """IANA name from /etc/localtime's symlink target (macOS), else the
+    abbreviation Python reports. Never raises."""
+    try:
+        target = os.readlink("/etc/localtime")
+        if "zoneinfo/" in target:
+            return target.split("zoneinfo/", 1)[1]
+    except OSError:
+        pass
+    return time.tzname[0] if time.tzname else "unknown"
+
+
+def run_instant(now_utc: datetime | None = None, local_date: date | None = None) -> dict:
+    """The run's start instant, as recorded in brief_<id>.run.json.
+    local_date defaults to the same instant read in the system timezone,
+    which is what date.today() inside the cycle returns."""
+    now = now_utc or datetime.now(timezone.utc)
+    close = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local = local_date or now.astimezone().date()
+    return {
+        "run_started_at_utc": now.isoformat(),
+        "seconds_after_utc_close": round((now - close).total_seconds(), 3),
+        "utc_date_at_start": now.date().isoformat(),
+        "local_date_at_start": local.isoformat(),
+        "local_tz": _local_tz_name(),
+    }
+
+
+def preflight_refusal(instant: dict) -> str | None:
+    """Why this instant must not build a cycle, or None if it may."""
+    if instant["seconds_after_utc_close"] < MIN_SECONDS_AFTER_UTC_CLOSE:
+        return (f"only {instant['seconds_after_utc_close']}s past the UTC daily "
+                f"close; need >= {MIN_SECONDS_AFTER_UTC_CLOSE}s")
+    if instant["local_date_at_start"] != instant["utc_date_at_start"]:
+        return (f"local date {instant['local_date_at_start']} ({instant['local_tz']}) "
+                f"differs from UTC date {instant['utc_date_at_start']}: cycle_id "
+                f"would not name the night the closed-bar window belongs to")
+    return None
+
+
+def _write_run_sidecar(brief_path: Path, instant: dict) -> None:
+    """brief_<id>.run.json next to the brief; publish_chain.py --brief
+    chains it as payload["run"]. Never raises -- a missing sidecar shows
+    up as a self_audit.py check 13 finding, not a failed night."""
+    try:
+        brief_path.with_suffix(".run.json").write_text(
+            json.dumps(instant, sort_keys=True, indent=2))
+    except Exception as exc:
+        log.error("could not write run sidecar for %s: %s", brief_path.name, exc)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -203,13 +273,22 @@ def _write_failure_sidecar(exc: Exception) -> None:
 
 
 def cmd_full(args):
+    instant = run_instant()
+    refusal = preflight_refusal(instant)
+    if refusal:
+        log.error("PREFLIGHT REFUSED -- %s (started %s). No cycle built.",
+                  refusal, instant["run_started_at_utc"])
+        print(f"PREFLIGHT REFUSED: {refusal}", file=sys.stderr)
+        raise SystemExit(PREFLIGHT_EXIT)
     try:
         from nightshift.db import init_db
         from nightshift.cycle import NightShiftCycle
         init_db()
-        brief = Path(NightShiftCycle(
-            allow_synthetic_prices=args.allow_synthetic_prices).run()).read_text()
-        print("\n" + brief)
+        cycle = NightShiftCycle(allow_synthetic_prices=args.allow_synthetic_prices)
+        instant["cycle_id"] = cycle.cycle_id
+        brief_path = Path(cycle.run())
+        _write_run_sidecar(brief_path, instant)
+        print("\n" + brief_path.read_text())
     except Exception as exc:
         # cycle.py already logs+re-raises (see NightShiftCycle.run()) --
         # this only adds the sidecar, then lets the exception keep

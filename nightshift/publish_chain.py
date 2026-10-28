@@ -74,6 +74,44 @@ OTS_DIR = REPO_ROOT / "reports" / "ots"
 # than an import into nightshift.cycle (frozen strategy_version surface).
 FAILURE_SIDECAR_PATH = REPO_ROOT / "nightshift" / "logs" / "last_pipeline_failure.json"
 
+
+def input_window(brief_name: str, archive_path: Path | None = None) -> dict:
+    """The night's input window as the OHLCV archive holds it -- what
+    core/reproduce.py replays -- not as the cycle believed it to be. Per
+    asset: the last closed bar and bar count archived under this night's
+    date, checked against the night's date minus one (a run after the UTC
+    daily close sees bars up to the previous UTC day). A stale archive --
+    e.g. an early run's short window kept because archive_closed_bars()
+    skips a (cycle_date, asset) already on disk -- shows as matches=False.
+    Never raises; an unreadable archive is recorded as such."""
+    import gzip
+    from datetime import date, timedelta
+    from nightshift.config import ASSETS
+    path = archive_path or OHLCV_ARCHIVE_PATH
+    digits = "".join(c for c in brief_name if c.isdigit())[:8]
+    night = date(int(digits[:4]), int(digits[4:6]), int(digits[6:8]))
+    expected = (night - timedelta(days=1)).isoformat()
+    found = {a: {"last_closed_bar": None, "n_bars": 0} for a in ASSETS}
+    out = {"source": "reports/archive/ohlcv.csv.gz", "night": night.isoformat(),
+           "expected_last_closed_bar": expected}
+    try:
+        with gzip.open(path, "rt", newline="") as f:
+            for line in f:
+                parts = line.split(",", 3)
+                if len(parts) < 3 or parts[0] != night.isoformat() or parts[1] not in found:
+                    continue
+                rec, bar = found[parts[1]], parts[2][:10]
+                rec["n_bars"] += 1
+                if rec["last_closed_bar"] is None or bar > rec["last_closed_bar"]:
+                    rec["last_closed_bar"] = bar
+    except Exception as exc:
+        out["error"] = f"could not read archive: {exc!r}"
+    for rec in found.values():
+        rec["matches"] = rec["last_closed_bar"] == expected
+    out["assets"] = found
+    out["all_match"] = all(r["matches"] for r in found.values())
+    return out
+
 # Written by nightshift/cycle.py's _write_graduation_sidecar(), only on
 # the meta-model's one fallback -> trained transition; read here, same
 # run_and_publish.sh invocation, same file-handoff reasoning as the
@@ -528,6 +566,15 @@ def main() -> int:
         ranking_path = Path(args.brief).with_suffix(".ranking.json")
         if ranking_path.exists():
             payload["ranking"] = json.loads(ranking_path.read_text())
+        # Run instant, written by run_nightshift.py (brief_<id>.run.json):
+        # when the cycle started relative to the UTC daily close, and the
+        # UTC and local dates it saw. Absent on briefs from before it existed.
+        run_path = Path(args.brief).with_suffix(".run.json")
+        if run_path.exists():
+            payload["run"] = json.loads(run_path.read_text())
+        # The input window as archived, so it is part of the record rather
+        # than inferred from cycle_id. nightshift/self_audit.py check 13.
+        payload["input_window"] = input_window(Path(args.brief).name)
     else:
         if not args.report:
             print("error: --report, --brief, --failed, --methodology, or "
