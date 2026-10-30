@@ -1,0 +1,57 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261030  ·  2026-10-30 00:06 UTC  ·  21s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=10  trans_p=5%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=172, cross-validated AUC=0.552, R²=-2.367.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 31 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+
+  [1] SOL/USDT_breakout_80ed1285161f
+      WFO  Sharpe=4.34  Sortino=11.08  MaxDD=-2.4%
+      GT=3.705  stability_σ=2.589
+      MC   G1=4.34 G2=4.20 G3=4.08 G4=4.34 G5_sens=0.34
+      RANK GT-Score=3.705  (published order)  scored=SOL/USDT_breakout_80ed1285161f
+      Params: {"lookback": 13, "exit_lookback": 5, "max_hold_days": 4}
+
+  [2] SOL/USDT_breakout_6570683e90aa
+      WFO  Sharpe=4.60  Sortino=10.14  MaxDD=-2.4%
+      GT=3.665  stability_σ=0.532
+      MC   G1=4.60 G2=4.48 G3=4.45 G4=4.60 G5_sens=0.35
+      RANK GT-Score=3.665  (published order)  scored=SOL/USDT_breakout_6570683e90aa
+      Params: {"lookback": 22, "exit_lookback": 5, "max_hold_days": 9}
+
+  [3] SOL/USDT_breakout_c4c58af2e549
+      WFO  Sharpe=4.60  Sortino=10.14  MaxDD=-2.4%
+      GT=3.665  stability_σ=0.532
+      MC   G1=4.60 G2=4.46 G3=4.44 G4=4.60 G5_sens=0.41
+      RANK GT-Score=3.665  (published order)  scored=SOL/USDT_breakout_c4c58af2e549
+      Params: {"lookback": 23, "exit_lookback": 5, "max_hold_days": 9}
+
+── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────
+  shadow #1  ETH/USDT_momentum_1822f8e9f3fb  (published below top 3)
+      [META] P(survive)=0.75  pred_decay=-0.36  uncertainty=±0.032  rank=-0.2629  (regime_n=0)
+  shadow #2  ETH/USDT_breakout_0e1bc0e29a6a  (published below top 3)
+      [META] P(survive)=0.82  pred_decay=-0.33  uncertainty=±0.006  rank=-0.2745  (regime_n=0)
+  shadow #3  ETH/USDT_breakout_30edadb97859  (published below top 3)
+      [META] P(survive)=0.78  pred_decay=-0.37  uncertainty=±0.007  rank=-0.2828  (regime_n=0)
+  Shadow #1 is published #1: no
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
