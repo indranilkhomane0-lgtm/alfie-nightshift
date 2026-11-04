@@ -1,0 +1,28 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261104  ·  2026-11-04 00:24 UTC  ·  81s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  2 — CHOPPY / RANGING  P=100%  days_in=35  trans_p=3%
+  Size mult: 50%  Vol target: 8% ann
+  Eligible: ['mean_rev']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=174, cross-validated AUC=0.514, R²=-2.547.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 32 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+  No configs passed all gates tonight.
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================

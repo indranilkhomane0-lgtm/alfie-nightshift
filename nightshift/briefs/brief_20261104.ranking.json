@@ -1,0 +1,16 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": []
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
