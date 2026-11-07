@@ -1,0 +1,66 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_relative_5925f212682a",
+        "gt_score": 11.344405032055766
+      },
+      {
+        "config_id": "ETH/USDT_momentum_2f70d600a537",
+        "gt_score": 4.354978937326258
+      },
+      {
+        "config_id": "ETH/USDT_momentum_04641283a4eb",
+        "gt_score": 4.354978937326258
+      },
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "gt_score": 3.778945584054817
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "ETH/USDT_momentum_04641283a4eb",
+        "model_active": true,
+        "predicted_decay": 0.8050266855815097,
+        "rank_score": 0.5901183758266749,
+        "survival_prob": 0.743148975614966,
+        "uncertainty": 0.013600194255658503
+      },
+      {
+        "config_id": "ETH/USDT_momentum_2f70d600a537",
+        "model_active": true,
+        "predicted_decay": 0.77685939853659,
+        "rank_score": 0.5717714964912725,
+        "survival_prob": 0.743148975614966,
+        "uncertainty": 0.009614681526841138
+      },
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "model_active": true,
+        "predicted_decay": -0.09541491454964725,
+        "rank_score": -0.0231200629600807,
+        "survival_prob": 0.2553485986003336,
+        "uncertainty": 0.05105887585885461
+      },
+      {
+        "config_id": "BTC/USDT_relative_5925f212682a",
+        "model_active": true,
+        "predicted_decay": -1.1419076565474873,
+        "rank_score": -0.7830444763573257,
+        "survival_prob": 0.7016737284617991,
+        "uncertainty": 0.02271725896233703
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
