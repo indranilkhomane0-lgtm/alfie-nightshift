@@ -1,0 +1,57 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261108  ·  2026-11-08 00:06 UTC  ·  22s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  0 — LOW-VOL BULL  P=100%  days_in=5  trans_p=10%
+  Size mult: 100%  Vol target: 14% ann
+  Eligible: ['momentum', 'breakout', 'relative']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=174, cross-validated AUC=0.514, R²=-2.547.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 32 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+
+  [1] SOL/USDT_relative_8ef586e878d2
+      WFO  Sharpe=6.19  Sortino=13.96  MaxDD=-5.3%
+      GT=4.776  stability_σ=n/a
+      MC   G1=6.19 G2=6.05 G3=5.85 G4=6.19 G5_sens=0.68
+      RANK GT-Score=4.776  (published order)  scored=SOL/USDT_relative_8ef586e878d2
+      Params: {"lookback": 19, "entry_z": 1.4978285955058657, "exit_z": 0.7647495846742407, "max_hold_days": 10}
+
+  [2] SOL/USDT_relative_e14974171a0b
+      WFO  Sharpe=6.12  Sortino=10.07  MaxDD=-4.6%
+      GT=4.219  stability_σ=n/a
+      MC   G1=6.12 G2=5.99 G3=5.86 G4=6.12 G5_sens=0.39
+      RANK GT-Score=4.219  (published order)  scored=SOL/USDT_relative_e14974171a0b
+      Params: {"lookback": 16, "entry_z": 1.925027686864246, "exit_z": 0.48725909074699575, "max_hold_days": 11}
+
+  [3] SOL/USDT_breakout_ac5cf8135cf1
+      WFO  Sharpe=5.86  Sortino=9.66  MaxDD=-4.6%
+      GT=4.054  stability_σ=n/a
+      MC   G1=5.86 G2=5.74 G3=5.64 G4=5.86 G5_sens=0.11
+      RANK GT-Score=4.054  (published order)  scored=SOL/USDT_breakout_ac5cf8135cf1
+      Params: {"lookback": 24, "exit_lookback": 8, "max_hold_days": 10}
+
+── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────
+  shadow #1  SOL/USDT_relative_8ef586e878d2  (published #1)
+      [META] P(survive)=0.56  pred_decay=0.24  uncertainty=±0.059  rank=0.1276  (regime_n=0)
+  shadow #2  SOL/USDT_relative_e14974171a0b  (published #2)
+      [META] P(survive)=0.57  pred_decay=0.08  uncertainty=±0.048  rank=0.0433  (regime_n=0)
+  shadow #3  SOL/USDT_breakout_ac5cf8135cf1  (published #3)
+      [META] P(survive)=0.54  pred_decay=-0.14  uncertainty=±0.086  rank=-0.0716  (regime_n=0)
+  Shadow #1 is published #1: yes
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
