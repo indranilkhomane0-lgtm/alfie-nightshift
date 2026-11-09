@@ -1,0 +1,54 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_relative_fba26037f4a3",
+        "gt_score": 5.1038360974345345
+      },
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "gt_score": 3.778945584054817
+      },
+      {
+        "config_id": "SOL/USDT_momentum_def6e9a1c915",
+        "gt_score": 1.921010003081292
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "model_active": true,
+        "predicted_decay": -1.7704299322413217,
+        "rank_score": -0.4702573642584082,
+        "survival_prob": 0.271034549029319,
+        "uncertainty": 0.019986163211504305
+      },
+      {
+        "config_id": "SOL/USDT_relative_fba26037f4a3",
+        "model_active": true,
+        "predicted_decay": -2.038739871223239,
+        "rank_score": -0.5065252043130263,
+        "survival_prob": 0.2603291241426571,
+        "uncertainty": 0.04563064244025417
+      },
+      {
+        "config_id": "SOL/USDT_momentum_def6e9a1c915",
+        "model_active": true,
+        "predicted_decay": -3.161727198223669,
+        "rank_score": -0.6291056223230049,
+        "survival_prob": 0.2019085947429834,
+        "uncertainty": 0.014527827858610013
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
