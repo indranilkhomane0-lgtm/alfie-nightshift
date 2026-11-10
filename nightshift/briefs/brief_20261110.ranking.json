@@ -1,0 +1,162 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_breakout_576ba4902417",
+        "gt_score": 2.6547362810764907
+      },
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "gt_score": 2.1517970979482115
+      },
+      {
+        "config_id": "SOL/USDT_relative_dcfa94facc74",
+        "gt_score": 2.0836021115452805
+      },
+      {
+        "config_id": "SOL/USDT_breakout_5113ed7d1f52",
+        "gt_score": 2.0760444430878318
+      },
+      {
+        "config_id": "SOL/USDT_momentum_7baab122e2e0",
+        "gt_score": 2.049454863449969
+      },
+      {
+        "config_id": "SOL/USDT_breakout_9a13d17483cb",
+        "gt_score": 2.040954822333085
+      },
+      {
+        "config_id": "SOL/USDT_breakout_b86641e22f60",
+        "gt_score": 1.942220524521053
+      },
+      {
+        "config_id": "SOL/USDT_breakout_756d6bb7d7b2",
+        "gt_score": 1.942220524521053
+      },
+      {
+        "config_id": "SOL/USDT_momentum_bc19ed273e3a",
+        "gt_score": 1.5259037296191045
+      },
+      {
+        "config_id": "SOL/USDT_momentum_5851de04b7e5",
+        "gt_score": 1.5259037296191045
+      },
+      {
+        "config_id": "ETH/USDT_breakout_e60b5d4e33cc",
+        "gt_score": 0.8092578470760181
+      },
+      {
+        "config_id": "ETH/USDT_breakout_b72cad954f2d",
+        "gt_score": 0.8079138596766943
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_breakout_576ba4902417",
+        "model_active": true,
+        "predicted_decay": -2.2881711279563794,
+        "rank_score": -0.8374368257875284,
+        "survival_prob": 0.3780140802004133,
+        "uncertainty": 0.031821182150535206
+      },
+      {
+        "config_id": "SOL/USDT_breakout_b86641e22f60",
+        "model_active": true,
+        "predicted_decay": -2.6479701014855177,
+        "rank_score": -0.8993571668098689,
+        "survival_prob": 0.3505741051740674,
+        "uncertainty": 0.031188492937601366
+      },
+      {
+        "config_id": "SOL/USDT_breakout_756d6bb7d7b2",
+        "model_active": true,
+        "predicted_decay": -2.6479701014855177,
+        "rank_score": -0.8993571668098689,
+        "survival_prob": 0.3505741051740674,
+        "uncertainty": 0.031188492937601366
+      },
+      {
+        "config_id": "SOL/USDT_breakout_5113ed7d1f52",
+        "model_active": true,
+        "predicted_decay": -2.4106951791046796,
+        "rank_score": -0.9014959242617612,
+        "survival_prob": 0.3850723539719977,
+        "uncertainty": 0.028866069212666583
+      },
+      {
+        "config_id": "SOL/USDT_relative_c88a55c22ab4",
+        "model_active": true,
+        "predicted_decay": -2.319664417099432,
+        "rank_score": -0.930332162624124,
+        "survival_prob": 0.4134933069750558,
+        "uncertainty": 0.030061070727461746
+      },
+      {
+        "config_id": "SOL/USDT_momentum_7baab122e2e0",
+        "model_active": true,
+        "predicted_decay": -2.7943284946946867,
+        "rank_score": -0.951775796359135,
+        "survival_prob": 0.3517160774009633,
+        "uncertainty": 0.03157726584523306
+      },
+      {
+        "config_id": "SOL/USDT_breakout_9a13d17483cb",
+        "model_active": true,
+        "predicted_decay": -2.609105451032175,
+        "rank_score": -0.9585722906254235,
+        "survival_prob": 0.3780140802004133,
+        "uncertainty": 0.028091765015022533
+      },
+      {
+        "config_id": "SOL/USDT_relative_dcfa94facc74",
+        "model_active": true,
+        "predicted_decay": -2.8020399679811887,
+        "rank_score": -0.990368990068343,
+        "survival_prob": 0.37050336741689915,
+        "uncertainty": 0.04603915801658558
+      },
+      {
+        "config_id": "SOL/USDT_momentum_bc19ed273e3a",
+        "model_active": true,
+        "predicted_decay": -3.5522968375643504,
+        "rank_score": -1.2074349253636307,
+        "survival_prob": 0.3517160774009633,
+        "uncertainty": 0.03358811201297794
+      },
+      {
+        "config_id": "SOL/USDT_momentum_5851de04b7e5",
+        "model_active": true,
+        "predicted_decay": -3.5376149567171153,
+        "rank_score": -1.3209950778228496,
+        "survival_prob": 0.3862598640975604,
+        "uncertainty": 0.03325695876860406
+      },
+      {
+        "config_id": "ETH/USDT_breakout_b72cad954f2d",
+        "model_active": true,
+        "predicted_decay": -2.928141935864228,
+        "rank_score": -2.3463803274826263,
+        "survival_prob": 0.8360211698417511,
+        "uncertainty": 0.04150685884058989
+      },
+      {
+        "config_id": "ETH/USDT_breakout_e60b5d4e33cc",
+        "model_active": true,
+        "predicted_decay": -3.220381037413072,
+        "rank_score": -2.6657211863404053,
+        "survival_prob": 0.8641467008106424,
+        "uncertainty": 0.042100411471812975
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
