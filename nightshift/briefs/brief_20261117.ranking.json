@@ -1,0 +1,42 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_relative_05a3a4a4084e",
+        "gt_score": 5.491521068983644
+      },
+      {
+        "config_id": "SOL/USDT_relative_dcfa94facc74",
+        "gt_score": 1.434187343025161
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_relative_dcfa94facc74",
+        "model_active": true,
+        "predicted_decay": -1.7871465614150477,
+        "rank_score": -1.5973374036083328,
+        "survival_prob": 0.9041096479317847,
+        "uncertainty": 0.01141187869948771
+      },
+      {
+        "config_id": "SOL/USDT_relative_05a3a4a4084e",
+        "model_active": true,
+        "predicted_decay": -2.268558979768996,
+        "rank_score": -1.9665660281857302,
+        "survival_prob": 0.8884909964322193,
+        "uncertainty": 0.024324439673255902
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}

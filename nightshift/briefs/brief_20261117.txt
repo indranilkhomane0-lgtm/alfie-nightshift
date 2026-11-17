@@ -1,0 +1,48 @@
+====================================================================
+  ALFIE — NIGHT SHIFT MORNING BRIEF
+  Cycle #20261117  ·  2026-11-17 04:58 UTC  ·  33s
+====================================================================
+
+── REGIME ─────────────────────────────────────────────────────────
+  1 — HIGH-VOL BULL  P=100%  days_in=14  trans_p=9%
+  Size mult: 75%  Vol target: 10% ann
+  Eligible: ['momentum', 'mean_rev', 'relative']
+
+── META-MODEL (SHADOW — NOT USED FOR THE PUBLISHED ORDER) ──────────
+  Shadow only, untrained-quality: n=174, cross-validated AUC=0.514, R²=-2.547.
+  No demonstrated skill. Its ranking is recorded below, not used.
+  Labeled corpus: 32 distinct dates
+
+── TOP CONFIGURATIONS (published order: GT-Score) ──────────────────
+
+  [1] SOL/USDT_relative_05a3a4a4084e
+      WFO  Sharpe=3.01  Sortino=0.00  MaxDD=-0.1%
+      GT=5.492  stability_σ=n/a
+      MC   G1=3.01 G2=2.49 G3=2.89 G4=3.01 G5_sens=0.36
+      RANK GT-Score=5.492  (published order)  scored=SOL/USDT_relative_05a3a4a4084e
+      Params: {"lookback": 27, "entry_z": 0.9138428615274184, "exit_z": 0.18607311294501616, "max_hold_days": 11}
+
+  [2] SOL/USDT_relative_dcfa94facc74
+      WFO  Sharpe=2.45  Sortino=2.82  MaxDD=-8.5%
+      GT=1.434  stability_σ=162.369
+      MC   G1=2.45 G2=2.33 G3=2.20 G4=2.45 G5_sens=0.64
+      RANK GT-Score=1.434  (published order)  scored=SOL/USDT_relative_dcfa94facc74
+      Params: {"lookback": 16, "entry_z": 2.088980148922226, "exit_z": 0.1025817644125243, "max_hold_days": 9}
+
+── META-MODEL SHADOW RANKING (NOT USED FOR THE PUBLISHED ORDER) ────
+  shadow #1  SOL/USDT_relative_dcfa94facc74  (published #2)
+      [META] P(survive)=0.90  pred_decay=-1.79  uncertainty=±0.011  rank=-1.5973  (regime_n=0)
+  shadow #2  SOL/USDT_relative_05a3a4a4084e  (published #1)
+      [META] P(survive)=0.89  pred_decay=-2.27  uncertainty=±0.024  rank=-1.9666  (regime_n=0)
+  Shadow #1 is published #1: no
+
+── LIVE HEALTH ─────────────────────────────────────────────────────
+  No strategies currently deployed.
+
+── ACTION REQUIRED ─────────────────────────────────────────────────
+  Review top config above. Confirm or reject before any live change.
+  System is PAPER-ONLY. No positions executed without your approval.
+
+====================================================================
+  ⚠  NOT FINANCIAL ADVICE. Research and educational use only.
+====================================================================
