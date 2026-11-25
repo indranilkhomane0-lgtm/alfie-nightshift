@@ -1,0 +1,30 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "ETH/USDT_momentum_a447193f3fee",
+        "gt_score": 1.3626458446414738
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "ETH/USDT_momentum_a447193f3fee",
+        "model_active": true,
+        "predicted_decay": 1.0037852021172504,
+        "rank_score": 0.9127946289627061,
+        "survival_prob": 0.9680522374904749,
+        "uncertainty": 0.06063690515457741
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
