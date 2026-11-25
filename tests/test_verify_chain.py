@@ -283,7 +283,7 @@ class StrategyVersionFileHashTest(unittest.TestCase):
             baseline = compute_strategy_version(root=root)
 
             # Touch exactly one in-surface file (an arbitrary pick from
-            # STRATEGY_VERSION_FILES -- any one of the seven must move it).
+            # STRATEGY_VERSION_FILES -- any one of them must move it).
             target = root / sorted(STRATEGY_VERSION_FILES)[0]
             target.write_text(target.read_text() + "# a real parameter change\n")
             after = compute_strategy_version(root=root)

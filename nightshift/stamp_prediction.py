@@ -30,6 +30,8 @@ Entry conditions mirrored from nightshift/strategies/__init__.py:
     mean_rev : RSI(rsi_period) < rsi_low
     momentum : MA(fast) > MA(slow) AND RSI(14) > rsi_entry
     relative : z(lookback return, 30d) > entry_z
+    breakout : last CLOSED close > max of the prior `lookback` closed closes
+               (closed bars only -- see entry_signal())
 """
 
 import json
@@ -109,8 +111,14 @@ def _zscore(closes, lookback, window=30):
     return (rets[-1] - mu) / sd
 
 
-def entry_signal(family: str, params: dict, closes) -> tuple:
-    """Returns ("long"|"none", diagnostic dict). Long-only by design."""
+def entry_signal(family: str, params: dict, closes, closed_closes=None) -> tuple:
+    """Returns ("long"|"none", diagnostic dict). Long-only by design.
+
+    closed_closes: the close series restricted to COMPLETED daily bars, as
+    decided by core/bar_calendar.is_utc_daily_bar_complete() in stamp().
+    Only breakout reads it; mean_rev, momentum and relative still read
+    `closes`, which includes the in-progress bar (unchanged, a known open
+    item). breakout fails closed: without closed_closes it never fires."""
     if family == "mean_rev":
         p = int(params.get("rsi_period", 14))
         r = _rsi(closes, p)
@@ -133,6 +141,35 @@ def entry_signal(family: str, params: dict, closes) -> tuple:
         z = _zscore(closes, lb)
         d = {"z": round(z, 3) if z is not None else None, "entry_z": ez}
         return ("long" if (z is not None and z > ez) else "none", d)
+
+    if family == "breakout":
+        # Entry condition of strategies/__init__.py breakout_strategy(),
+        # evaluated at the last CLOSED bar:
+        #   upper = close.rolling(lb).max().shift(1); enter if c > upper
+        # i.e. strictly above the highest close of the lb bars BEFORE it
+        # (shift(1): the bar never sits in its own channel). Its NaN skip
+        # also needs the shift(1)'d exit_lookback low to exist, and its
+        # lb/xlb >= len-5 guard yields no signal at all; both mirrored.
+        # Entry only, like the other three families: the backtester's
+        # in-trade state, exits and max_hold_days have no stamper analogue.
+        if closed_closes is None:
+            return ("none", {"note": "breakout requires closed bars; none supplied"})
+        lb = int(params.get("lookback", 20))
+        xlb = int(params.get("exit_lookback", 10))
+        n = len(closed_closes)
+        d = {"lookback": lb, "exit_lookback": xlb, "n_closed": n}
+        if lb >= n - 5 or xlb >= n - 5:
+            d["note"] = "lookback guard: too few closed bars"
+            return ("none", d)
+        c = closed_closes[-1]
+        up_win = closed_closes[-1 - lb:-1]
+        lo_win = closed_closes[-1 - xlb:-1]
+        if any(v != v for v in up_win) or any(v != v for v in lo_win):
+            d["note"] = "NaN in channel window"
+            return ("none", d)
+        u = max(up_win)
+        d.update({"close": c, "upper": u})
+        return ("long" if c > u else "none", d)
 
     return ("none", {"note": f"unknown family {family}"})
 
@@ -169,11 +206,6 @@ def stamp(cfg: dict, ohlcv, source: str | None = None,
     closes = ohlcv["close"].tolist()   # full series, live bar included -- signal math is unaffected
     params = cfg.get("params", {}) or {}
     family = cfg.get("strategy_family", "")
-    direction, diag = entry_signal(family, params, closes)
-    if direction == "none":
-        log.info("  %s: no entry signal tonight (%s)", cfg.get("config_id"), diag)
-        return None
-    entry = date.today()
 
     # context_hash covers only CLOSED bars. ohlcv's last row is today's
     # in-progress daily candle -- its OHLC keeps changing until the UTC
@@ -182,8 +214,15 @@ def stamp(cfg: dict, ohlcv, source: str | None = None,
     # bar and therefore a different hash. is_utc_daily_bar_complete()
     # (core/bar_calendar.py) enforces the identical boundary
     # label_outcomes.fetch_settle_close() already uses for grading, so
-    # the two can't disagree about what's "final."
+    # the two can't disagree about what's "final." Computed BEFORE
+    # entry_signal() so breakout's signal and the hash use the same cut.
     closed = ohlcv[[is_utc_daily_bar_complete(i) for i in ohlcv.index]]
+    direction, diag = entry_signal(family, params, closes,
+                                   closed_closes=closed["close"].tolist())
+    if direction == "none":
+        log.info("  %s: no entry signal tonight (%s)", cfg.get("config_id"), diag)
+        return None
+    entry = date.today()
 
     # Archive the EXACT bytes about to be hashed below, not a re-fetch --
     # same `closed` object, same call. See nightshift/archive_ohlcv.py

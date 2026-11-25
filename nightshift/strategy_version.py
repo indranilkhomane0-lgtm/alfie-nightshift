@@ -67,6 +67,15 @@ in, with the causal link:
                            run_and_publish.sh's run lock, which sits
                            outside the Python call path and is not
                            importable by the cycle.
+  core/bar_calendar.py    -- added with the entry-478 breakout fix
+                           (generation 13). is_utc_daily_bar_complete()
+                           decides which bars stamp() passes to
+                           entry_signal() as closed_closes, and breakout's
+                           direction is computed from those alone, so it
+                           is now call-determining. Before that it only
+                           shaped context_hash/context_start/context_end
+                           (provenance metadata) and was traced out. It is
+                           the only file on this list outside nightshift/.
 
 Traced out (confirmed non-causal, not merely deprioritised):
   live_monitor.py, db.py -- stamp() runs on every mc_passed config
@@ -81,10 +90,6 @@ Traced out (confirmed non-causal, not merely deprioritised):
     table the way meta-model ranking does. Revisit if that changes.
   derivatives.py -- feeds cfg_dicts (funding_rate etc.) for meta-model
     training/DB storage only; entry_signal() never reads it.
-  core/bar_calendar.py -- is_utc_daily_bar_complete() only shapes
-    context_hash/context_start/context_end (provenance metadata);
-    direction is computed off the full close series before that filter
-    runs (see the comment in stamp_prediction.stamp()).
   run_nightshift.py, run_and_publish.sh -- pure CLI/orchestration
     dispatch, no signal logic of their own.
   meta_model.pkl, corpus.db -- gitignored, locally regenerated
@@ -108,6 +113,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # "the strategy," so changing it is itself a methodology change that
 # belongs on the chain, not a routine edit.
 STRATEGY_VERSION_FILES = [
+    "core/bar_calendar.py",
     "nightshift/brief_guard.py",
     "nightshift/config.py",
     "nightshift/cycle.py",

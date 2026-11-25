@@ -693,7 +693,10 @@ def replay(archived: dict, delta_rows: list, cycle_id: int, target: _date,
     for res, cfg in zip(mc_passed_ranked, cfg_dicts_ranked):
         df = prices[res.asset]
         closes = df["close"].tolist()
-        direction, diag = entry_signal(res.strategy_family, res.params, closes)
+        # Archived bars are closed bars only, so they are also breakout's
+        # closed_closes (it fails closed without them).
+        direction, diag = entry_signal(res.strategy_family, res.params, closes,
+                                       closed_closes=closes)
         if direction == "none":
             continue
         replayed_predictions.append({

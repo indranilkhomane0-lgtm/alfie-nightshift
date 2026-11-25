@@ -237,9 +237,10 @@ class StampIntegrationTest(unittest.TestCase):
         self.assertEqual(n_archived, pred["context_n_bars"])
 
     def test_no_signal_archives_nothing(self):
-        """direction == 'none' returns before `closed` is even computed
-        -- archiving must not fire for a candidate that produces no
-        stamped prediction."""
+        """direction == 'none' returns before archive_closed_bars() is
+        called -- `closed` is computed first, since entry_signal() needs it
+        for breakout (entry-478 fix), but archiving must not fire for a
+        candidate that produces no stamped prediction."""
         cfg = {"asset": "ETH/USDT", "config_id": "c2", "strategy_family": "momentum",
                "params": {"fast_ma": 20, "slow_ma": 5, "rsi_entry": 90}}
         pred = self.stamp_prediction.stamp(cfg, self._df(trend=-0.5), source="binance")
