@@ -632,8 +632,8 @@ class DefaultOutputTest(unittest.TestCase):
 
     def test_empty_slices_collapse_to_one_line_each_section(self):
         out = self._run(self._record())
-        self.assertIn("0 graded calls (11):", out)   # stamp-time: all empty
-        self.assertIn("0 graded calls (11): " + FROZEN_CODE_VERSION[:12], out)
+        self.assertIn("0 graded calls (12):", out)   # stamp-time: all empty
+        self.assertIn("0 graded calls (12): " + FROZEN_CODE_VERSION[:12], out)
         self.assertNotIn("n=0  avg n/a  median n/a\n    losses: n=0", out)
         # the slice holding calls keeps its block and its label
         self.assertIn(f"strategy_version {FROZEN_STRATEGY_VERSION_V5[:12]} -- fifth", out)
@@ -650,8 +650,8 @@ class DefaultOutputTest(unittest.TestCase):
 
     def test_all_slices_prints_every_block(self):
         out = self._run(self._record(), "--all-slices")
-        # headline 1 + unattributable 1 + 11 stamp + 12 grading
-        self.assertEqual(out.count("  wins:   n="), 25)
+        # headline 1 + unattributable 1 + 12 stamp + 13 grading
+        self.assertEqual(out.count("  wins:   n="), 27)
         self.assertNotIn("0 graded calls (", out)
 
     def test_labeled_dates_never_prints_n_of_smaller_target(self):

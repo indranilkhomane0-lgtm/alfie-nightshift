@@ -28,8 +28,8 @@ version -- that slice is the only one not mixing multiple code versions
 into one win/loss tally; everything else on this record combines over a
 hundred different versions into a single count.
 
-Twelve freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
-FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V10, and
+Thirteen freeze generations are tracked, not one -- see FROZEN_CODE_VERSION,
+FROZEN_STRATEGY_VERSION_V1 through FROZEN_STRATEGY_VERSION_V11, and
 FROZEN_STRATEGY_VERSION below. The first
 freeze (chain entry 234) was declared against code_version, the git HEAD
 sha at chain time. That conflates strategy changes with every
@@ -99,8 +99,11 @@ published order to GT-Score with the meta-model in shadow, producing
 FROZEN_STRATEGY_VERSION_V9. The tenth (2026-10-26) added
 nightshift/brief_guard.py to the hashed set, producing
 FROZEN_STRATEGY_VERSION_V10. The eleventh (2026-10-26) archived every
-asset's OHLCV every night, producing the current value,
-FROZEN_STRATEGY_VERSION. All twelve constants and all twelve filtered
+asset's OHLCV every night, producing FROZEN_STRATEGY_VERSION_V11. The
+twelfth (2026-11-27) gave the breakout family its entry signal, on
+closed bars only, and added core/bar_calendar.py to the hashed set,
+producing the current value, FROZEN_STRATEGY_VERSION. All thirteen
+constants and all thirteen filtered
 sections stay (GRADING_SLICES below; empty ones collapse to one line
 unless --all-slices): each slice is real history that already happened under
 those terms and does not get erased by the next correction.
@@ -346,9 +349,23 @@ FROZEN_STRATEGY_VERSION_V10 = "a0faa06f4feae265ca88ee215b8b2327136bbdeed70aeeece
 # space, the gates, or which configs get stamped. The last move made
 # before the bar declared alongside it on the chain: from that entry,
 # STRATEGY_VERSION_FILES and the files on it change only for a change to
-# how a call is made. This is the value that actually governs the freeze
-# from this correction forward.
-FROZEN_STRATEGY_VERSION = "a51bc7cc18015cf78a6d90bc13818157cd9fe3c2445128c0cf5ceac48aaa2518"
+# how a call is made. Governed the freeze until the twelfth correction
+# below. Superseded -- kept, filter and all.
+FROZEN_STRATEGY_VERSION_V11 = "a51bc7cc18015cf78a6d90bc13818157cd9fe3c2445128c0cf5ceac48aaa2518"
+
+# Twelfth correction, declared 2026-11-27 (chain entry 539, delivering
+# entry 478's dated commitment): nightshift/stamp_prediction.py
+# entry_signal() gains a breakout branch -- the entry condition of
+# breakout_strategy(), read on completed daily bars only -- so the
+# breakout family can make a call at all; before this it always returned
+# "unknown family breakout". stamp() computes its closed-bar window
+# before entry_signal() and passes it in; core/reproduce.py passes its
+# archived bars. core/bar_calendar.py now decides which bars that
+# direction is computed from, so it joins STRATEGY_VERSION_FILES (ten
+# files; versions either side of this boundary do not hash the same
+# surface). mean_rev, momentum and relative unchanged. This is the value
+# that actually governs the freeze from this correction forward.
+FROZEN_STRATEGY_VERSION = "db55146c46be40c039967a7832d18c449311ca83ecf6d643d6a190b8f3402be8"
 
 # data key of the METHODOLOGY_CHANGE that disclosed grading-time
 # misattribution and introduced stamped_strategy_version. Located by key,
@@ -588,6 +605,8 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
     frozen_sv9_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V9)
     frozen_sv10_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V10)
     frozen_sv10_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V10)
+    frozen_sv11_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION_V11)
+    frozen_sv11_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION_V11)
     frozen_sv_win = returns("WIN", strategy_version=FROZEN_STRATEGY_VERSION)
     frozen_sv_loss = returns("LOSS", strategy_version=FROZEN_STRATEGY_VERSION)
 
@@ -600,6 +619,7 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         FROZEN_STRATEGY_VERSION_V8,
         FROZEN_STRATEGY_VERSION_V9,
         FROZEN_STRATEGY_VERSION_V10,
+        FROZEN_STRATEGY_VERSION_V11,
         FROZEN_STRATEGY_VERSION,
     ]
 
@@ -674,6 +694,10 @@ def compute_stats(chain_path: Path, ots_dir: Path = OTS_DIR) -> dict:
         "frozen_strategy_version_v10_return_stats": {
             "win": (*_mean_median(frozen_sv10_win), len(frozen_sv10_win)),
             "loss": (*_mean_median(frozen_sv10_loss), len(frozen_sv10_loss)),
+        },
+        "frozen_strategy_version_v11_return_stats": {
+            "win": (*_mean_median(frozen_sv11_win), len(frozen_sv11_win)),
+            "loss": (*_mean_median(frozen_sv11_loss), len(frozen_sv11_loss)),
         },
         "frozen_strategy_version_return_stats": {
             "win": (*_mean_median(frozen_sv_win), len(frozen_sv_win)),
@@ -787,9 +811,12 @@ GRADING_SLICES = [
     ("strategy_version", FROZEN_STRATEGY_VERSION_V10, "frozen_strategy_version_v10_return_stats",
      "tenth correction (nightshift/brief_guard.py added to the frozen surface; "
      "no code change), superseded; kept for history"),
-    ("strategy_version", FROZEN_STRATEGY_VERSION, "frozen_strategy_version_return_stats",
+    ("strategy_version", FROZEN_STRATEGY_VERSION_V11, "frozen_strategy_version_v11_return_stats",
      "eleventh correction (every asset's OHLCV archived every night; no change "
-     "to how a call is made); current frozen strategy version"),
+     "to how a call is made), superseded; kept for history"),
+    ("strategy_version", FROZEN_STRATEGY_VERSION, "frozen_strategy_version_return_stats",
+     "twelfth correction (breakout entry signal, closed bars only; "
+     "core/bar_calendar.py added to the frozen surface); current frozen strategy version"),
 ]
 
 # Stamp-time slices: (frozen value, short label). code_version has none --
@@ -805,7 +832,8 @@ STAMP_SLICES = [
     (FROZEN_STRATEGY_VERSION_V8, "eighth correction"),
     (FROZEN_STRATEGY_VERSION_V9, "ninth correction"),
     (FROZEN_STRATEGY_VERSION_V10, "tenth correction"),
-    (FROZEN_STRATEGY_VERSION, "eleventh correction, current"),
+    (FROZEN_STRATEGY_VERSION_V11, "eleventh correction"),
+    (FROZEN_STRATEGY_VERSION, "twelfth correction, current"),
 ]
 
 FLAGS_HELP = (
