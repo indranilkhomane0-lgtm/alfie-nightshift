@@ -1,0 +1,90 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_momentum_a02a50c5cad7",
+        "gt_score": 4.684450112607891
+      },
+      {
+        "config_id": "BTC/USDT_momentum_2c767f6a21a2",
+        "gt_score": 2.9456809212820123
+      },
+      {
+        "config_id": "BTC/USDT_momentum_f1a3eacd4888",
+        "gt_score": 2.2525687753150025
+      },
+      {
+        "config_id": "SOL/USDT_relative_9351188a7aa6",
+        "gt_score": 1.7924907992338466
+      },
+      {
+        "config_id": "SOL/USDT_relative_5513d6c3960a",
+        "gt_score": 1.6860034054320154
+      },
+      {
+        "config_id": "SOL/USDT_relative_6d977d33d117",
+        "gt_score": 1.2942714789355958
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_momentum_a02a50c5cad7",
+        "model_active": true,
+        "predicted_decay": 1.7034860325301053,
+        "rank_score": 1.6155477878030071,
+        "survival_prob": 0.9580304413542351,
+        "uncertainty": 0.010075841711540915
+      },
+      {
+        "config_id": "BTC/USDT_momentum_2c767f6a21a2",
+        "model_active": true,
+        "predicted_decay": 0.561095873112481,
+        "rank_score": 0.5369371829791525,
+        "survival_prob": 0.9648619915898609,
+        "uncertainty": 0.008206616342151085
+      },
+      {
+        "config_id": "BTC/USDT_momentum_f1a3eacd4888",
+        "model_active": true,
+        "predicted_decay": 0.3677782991378399,
+        "rank_score": 0.3317798155238071,
+        "survival_prob": 0.9628596793599759,
+        "uncertainty": 0.06308355742508469
+      },
+      {
+        "config_id": "SOL/USDT_relative_6d977d33d117",
+        "model_active": true,
+        "predicted_decay": -0.7070886516593229,
+        "rank_score": -0.6773882001021917,
+        "survival_prob": 0.9739407475073081,
+        "uncertainty": 0.016371227804893067
+      },
+      {
+        "config_id": "SOL/USDT_relative_9351188a7aa6",
+        "model_active": true,
+        "predicted_decay": -0.8525893246450499,
+        "rank_score": -0.8030734556335191,
+        "survival_prob": 0.9755080863358206,
+        "uncertainty": 0.034428347975292484
+      },
+      {
+        "config_id": "SOL/USDT_relative_5513d6c3960a",
+        "model_active": true,
+        "predicted_decay": -1.0613667796566286,
+        "rank_score": -1.024095210619843,
+        "survival_prob": 0.9749796437942266,
+        "uncertainty": 0.010355315217428955
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
