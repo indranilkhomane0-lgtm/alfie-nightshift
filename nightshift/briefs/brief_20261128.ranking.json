@@ -1,0 +1,78 @@
+{
+  "published_order": {
+    "basis": "gt_score",
+    "configs": [
+      {
+        "config_id": "SOL/USDT_relative_995508d2ea47",
+        "gt_score": 3.741254684358598
+      },
+      {
+        "config_id": "BTC/USDT_momentum_2c767f6a21a2",
+        "gt_score": 3.3501555342502947
+      },
+      {
+        "config_id": "BTC/USDT_momentum_f1a3eacd4888",
+        "gt_score": 2.6020711827428613
+      },
+      {
+        "config_id": "SOL/USDT_relative_9351188a7aa6",
+        "gt_score": 1.631567462802107
+      },
+      {
+        "config_id": "SOL/USDT_relative_6d977d33d117",
+        "gt_score": 1.5326094346461583
+      }
+    ]
+  },
+  "shadow_order": {
+    "basis": "meta_model",
+    "configs": [
+      {
+        "config_id": "BTC/USDT_momentum_2c767f6a21a2",
+        "model_active": true,
+        "predicted_decay": 2.557385959677581,
+        "rank_score": 2.2991961432369576,
+        "survival_prob": 0.9196790775377504,
+        "uncertainty": 0.022439962764086538
+      },
+      {
+        "config_id": "BTC/USDT_momentum_f1a3eacd4888",
+        "model_active": true,
+        "predicted_decay": 0.047221017953122946,
+        "rank_score": 0.039633919813833886,
+        "survival_prob": 0.9167079908830399,
+        "uncertainty": 0.08441079355184407
+      },
+      {
+        "config_id": "SOL/USDT_relative_6d977d33d117",
+        "model_active": true,
+        "predicted_decay": -1.2750893885656,
+        "rank_score": -1.1584288127778786,
+        "survival_prob": 0.9157229793986982,
+        "uncertainty": 0.007879081322963983
+      },
+      {
+        "config_id": "SOL/USDT_relative_9351188a7aa6",
+        "model_active": true,
+        "predicted_decay": -1.6751833300703833,
+        "rank_score": -1.508596554377426,
+        "survival_prob": 0.9105438114106302,
+        "uncertainty": 0.010968960010392706
+      },
+      {
+        "config_id": "SOL/USDT_relative_995508d2ea47",
+        "model_active": true,
+        "predicted_decay": -1.8310770931433662,
+        "rank_score": -1.6309103746999485,
+        "survival_prob": 0.9137690570045398,
+        "uncertainty": 0.025263972715009023
+      }
+    ],
+    "model": {
+      "cv_auc": 0.5139912280701754,
+      "cv_r2": -2.546795246400027,
+      "n_train": 174
+    },
+    "used_for_published_order": false
+  }
+}
